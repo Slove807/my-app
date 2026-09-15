@@ -1,0 +1,328 @@
+import path from "node:path";
+import type { RevisionInfo } from "./types";
+
+// PRD Must 1 규칙: 변경 여부는 개정번호와 개정일자를 기준으로 판단한다.
+// 문서 양식이 두 가지라 각각 다르게 읽는다.
+//  (1) 인증기관 시험성적서(CB Test Report) — "Amendment No. 3: 2026-05-08"
+//  (2) 국문 사내 규정 — "개정번호: 2 / 개정일자: 2026-08-17"
+
+// --- (1) 인증기관 시험성적서 ---
+const CB_MARKER = /TRF No\.|Test Report Form No\./;
+const CB_AMENDMENT = /Amendment No\.\s*([0-9]+)\s*:\s*([0-9]{4})-([0-9]{2})-([0-9]{2})/;
+const CB_ISSUE_DATE = /Date of issue[^\n:]*:\s*([0-9]{4})-([0-9]{2})-([0-9]{2})/;
+const CB_MODEL = /Model\/Type reference[^\n:]*:\s*([^\n]+)/;
+// 표지에는 "Test Report Form No.", 다음 페이지부터는 "TRF No."로 표기가 다르다
+const CB_TRF = /(?:Test Report Form No\.|TRF No\.)[^\n:]*:?\s*([A-Za-z0-9_]+)/;
+const CB_REPORT_NO = /Report Number[^\n:]*:\s*([A-Z]{2,}[0-9]+)/;
+// 개정본은 "...shall be used together with the Original test report No. REPxxxxx..."로
+// 원본 성적서 번호를 명시한다. 줄바꿈으로 끊길 수 있어 공백을 정리한 뒤 찾는다.
+const CB_ORIGINAL_REF = /Original test report\s*No\.?\s*([A-Z]{2,}[0-9]+)/i;
+// 개정 사유: "The updates concerned in this report are (as follows); - ..."
+// 각주(*) 앞까지만 잘라낸다. 문장이 길 수 있어 넉넉히 잡고 뒤에서 길이를 자른다.
+const CB_REASON =
+  /The updates concerned in this (?:test )?report (?:are|is)(?: as follows)?[;:]?\s*(.+?)(?=\s*\*+\)|$)/i;
+const CB_LAB =
+  /Name of Testing Laboratory\s*preparing the Report[.\s]*:\s*(.+?)\s*Applicant/i;
+const CB_TEST_ITEM = /Test item description[.\s]*:\s*(.+?)\s*Trade Mark/i;
+// 규격 번호가 페이지 폭에 걸려 줄바꿈되는 경우가 있어 [\s\S]로 줄바꿈도 건너뛰게 한다
+const CB_STANDARD = /(?<!Non-)Standard[.\s]*:\s*([\s\S]+?)\s*Test procedure/i;
+
+// --- (2) 국문 사내 규정 ---
+const REVISION_NO_PATTERNS = [
+  /개정\s*(?:번호|차수|차)\s*[:：]?\s*제?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:차|호|판)?/,
+  /(?:Rev|REV|rev)\.?\s*(?:No\.?)?\s*[:：]?\s*([0-9]+(?:\.[0-9]+)?)/,
+  /(?:버전|Version|version)\s*[:：]?\s*[vV]?([0-9]+(?:\.[0-9]+)?)/,
+  /제\s*([0-9]+)\s*차\s*개정/,
+];
+
+const REVISION_DATE_PATTERNS = [
+  /개정\s*(?:일자|일)\s*[:：]?\s*([0-9]{4})\s*[-.\/년]\s*([0-9]{1,2})\s*[-.\/월]\s*([0-9]{1,2})/,
+  /시행\s*(?:일자|일)\s*[:：]?\s*([0-9]{4})\s*[-.\/년]\s*([0-9]{1,2})\s*[-.\/월]\s*([0-9]{1,2})/,
+  /제정\s*(?:일자|일)\s*[:：]?\s*([0-9]{4})\s*[-.\/년]\s*([0-9]{1,2})\s*[-.\/월]\s*([0-9]{1,2})/,
+];
+
+const TITLE_PATTERN = /(?:문서\s*)?(?:제목|문서명)\s*[:：]\s*(.+)/;
+
+// 파일명에 붙는 개정 표기: (Amd 1), (Amd.3), (Original)
+const FILE_AMENDMENT = /\(\s*Amd\.?\s*([0-9]+)\s*\)/i;
+const FILE_ORIGINAL = /\(\s*Original\s*\)/i;
+
+/** 본문과 파일명에서 제목, 개정번호, 개정일자를 뽑아낸다 */
+export function extractRevisionInfo(text: string, fileName: string): RevisionInfo {
+  const head = text.slice(0, 8000);
+  return CB_MARKER.test(head)
+    ? readCbReport(head, text, fileName)
+    : readKoreanRegulation(head, fileName);
+}
+
+/** 인증기관 시험성적서에서 개정 정보와 모델을 읽는다 */
+function readCbReport(head: string, fullText: string, fileName: string): RevisionInfo {
+  const model = matchText(head, CB_MODEL);
+  const trf = matchText(head, CB_TRF);
+  const reportNo = matchText(head, CB_REPORT_NO);
+  const docType = readDocType(fileName);
+  const equipmentName = matchText(head, CB_TEST_ITEM);
+  const testingLab = matchText(head, CB_LAB);
+  // 규격 번호가 줄바꿈에 걸려 "60601-\n1:2005"처럼 끊기는 경우가 있어 붙여 준다
+  const appliedStandard = matchText(head, CB_STANDARD)?.replace(/-\s+(?=\d)/g, "-") ?? null;
+
+  // "본 개정은 원본 성적서 No. REPxxxxx와 함께 사용한다"는 문장이나 개정 사유 설명은
+  // 표지가 아니라 본문 뒷부분(개정 이력 설명 단락)에 나오는 경우가 많아 문서 전체에서 찾는다.
+  // 줄바꿈으로 문장이 끊겨 있을 수 있어 공백을 정리한 뒤 찾는다.
+  const flatFullText = fullText.replace(/\s+/g, " ");
+  const originalRef = matchText(flatFullText, CB_ORIGINAL_REF);
+  // 개정본은 원본 번호를 그대로 계보 축으로 쓰고, 원본 자신은 스스로가 축이 된다
+  const chainAnchor = originalRef ?? reportNo;
+
+  let revisionNo: string | null = null;
+  let revisionDate: string | null = null;
+  let foundIn: RevisionInfo["foundIn"] = "없음";
+
+  const amendment = head.match(CB_AMENDMENT);
+  if (amendment) {
+    // "Amendment No. 3: 2026-05-08" — 개정본
+    revisionNo = amendment[1];
+    revisionDate = `${amendment[2]}-${amendment[3]}-${amendment[4]}`;
+    foundIn = "본문";
+  } else {
+    const issued = head.match(CB_ISSUE_DATE);
+    if (issued) {
+      // 개정 표기가 없으면 최초 발행본으로 본다
+      revisionNo = "0";
+      revisionDate = `${issued[1]}-${issued[2]}-${issued[3]}`;
+      foundIn = "본문";
+    }
+  }
+
+  // 개정본은 본문에 적힌 "무엇이 바뀌었는지" 문장을 그대로 사유로 쓴다.
+  // 원본(개정 0)은 그런 문장이 없으므로 "최초 발행"으로 표시한다.
+  const reasonMatch = matchText(flatFullText, CB_REASON);
+  const reasonForIssue = reasonMatch
+    ? reasonMatch.slice(0, 500)
+    : revisionNo === "0"
+      ? "최초 발행"
+      : null;
+
+  // 초안본은 발행 정보가 비어 있어 파일명에서 보조로 읽는다
+  if (!revisionNo) {
+    const fromName = fileName.match(FILE_AMENDMENT);
+    if (fromName) {
+      revisionNo = fromName[1];
+      foundIn = "파일명";
+    } else if (FILE_ORIGINAL.test(fileName)) {
+      revisionNo = "0";
+      foundIn = "파일명";
+    }
+  }
+  if (!revisionDate) {
+    const fromName = matchDateInFileName(fileName);
+    if (fromName) {
+      revisionDate = fromName;
+      if (foundIn === "없음") foundIn = "파일명";
+    }
+  }
+
+  const label = [trf, docType].filter(Boolean).join(" ");
+  const title = model
+    ? `${model}${label ? ` — ${label}` : ""}`
+    : path.basename(fileName, path.extname(fileName));
+
+  return {
+    title,
+    revisionNo,
+    revisionDate,
+    foundIn,
+    model,
+    standard: trf,
+    reportNo,
+    docType,
+    chainAnchor,
+    equipmentName,
+    testingLab,
+    appliedStandard,
+    reasonForIssue,
+  };
+}
+
+/** 국문 사내 규정에서 개정 정보를 읽는다 */
+function readKoreanRegulation(head: string, fileName: string): RevisionInfo {
+  let revisionNo = matchFirst(head, REVISION_NO_PATTERNS);
+  let revisionDate = matchDate(head, REVISION_DATE_PATTERNS);
+  let foundIn: RevisionInfo["foundIn"] = revisionNo || revisionDate ? "본문" : "없음";
+
+  if (!revisionNo) {
+    const fromName = matchFirst(fileName, REVISION_NO_PATTERNS);
+    if (fromName) {
+      revisionNo = fromName;
+      if (foundIn === "없음") foundIn = "파일명";
+    }
+  }
+
+  if (!revisionDate) {
+    const fromName = matchDateInFileName(fileName);
+    if (fromName) {
+      revisionDate = fromName;
+      if (foundIn === "없음") foundIn = "파일명";
+    }
+  }
+
+  return {
+    title: extractTitle(head, fileName),
+    revisionNo,
+    revisionDate,
+    foundIn,
+    model: null,
+    standard: null,
+    reportNo: null,
+    docType: null,
+    chainAnchor: null,
+    equipmentName: null,
+    testingLab: null,
+    appliedStandard: null,
+    reasonForIssue: null,
+  };
+}
+
+/**
+ * 같은 문서의 다른 개정본인지 판단하는 키를 만든다.
+ * 시험성적서는 개정할 때마다 파일명의 PRJ·REP 번호가 모두 바뀌므로
+ * 파일명 대신 본문의 모델/규격을 기준으로 묶는다.
+ */
+export function makeDocKey(text: string, fileName: string): string {
+  const info = extractRevisionInfo(text, fileName);
+
+  // 가장 신뢰할 수 있는 근거: 개정본이 본문에 명시한 원본 성적서 번호.
+  // 파일명의 PRJ·REP 번호는 개정마다 바뀌고, 표기된 모델명도 보고서마다 다를 수 있지만
+  // (예: 같은 제품이 "POTENZA RF"·"POTENZA 1.5"로 다르게 적힘), 원본 성적서 번호는
+  // 계보 전체에서 하나로 고정되어 있다.
+  if (info.chainAnchor && info.docType) {
+    return slug([info.docType, info.chainAnchor].join("_"));
+  }
+
+  // 계보를 못 찾았으면 제품명 기준으로 묶는다 (규격·문서종류가 함께 있을 때만)
+  if (info.model && (info.standard || info.docType)) {
+    return slug([info.model, info.standard, info.docType].filter(Boolean).join("_"));
+  }
+
+  return makeDocKeyFromFileName(fileName);
+}
+
+/** 본문에서 모델을 찾지 못했을 때 쓰는 파일명 기반 키 */
+export function makeDocKeyFromFileName(fileName: string): string {
+  const base = path.basename(fileName, path.extname(fileName));
+  return (
+    slug(
+      base
+        .replace(/[0-9]{4}[-._]?[0-9]{2}[-._]?[0-9]{2}/g, " ")
+        .replace(/\(\s*Amd\.?\s*[0-9]*\s*\)/gi, " ")
+        .replace(/\(\s*Original\s*\)/gi, " ")
+        .replace(/(?:개정|rev|ver|version)\.?[-_\s]?[0-9]+(?:\.[0-9]+)?/gi, " ")
+        .replace(/제?\s*[0-9]+\s*차/g, " ")
+        .replace(/[-_\s]v[0-9]+(?:\.[0-9]+)?/gi, " "),
+    ) || "문서"
+  );
+}
+
+/** 챗봇이 문서를 찾을 때 쓸 별칭 (파일명에 들어 있는 제품명 등) */
+export function makeAliases(fileName: string, model: string | null): string[] {
+  const aliases = new Set<string>();
+  const base = path.basename(fileName, path.extname(fileName));
+
+  if (model) {
+    for (const part of model.split(/[;,]/)) {
+      const trimmed = part.trim();
+      if (trimmed) aliases.add(trimmed);
+    }
+  }
+
+  // 파일명에서 PRJ/REP 번호와 개정 표기를 걷어내고 남는 이름을 별칭으로 쓴다
+  const cleaned = base
+    .replace(/\b(?:PRJ|REP)[0-9]+\b/gi, " ")
+    .replace(/\(\s*Amd\.?\s*[0-9]*\s*\)/gi, " ")
+    .replace(/\(\s*Original\s*\)/gi, " ")
+    .replace(/\b(?:Rev|rev)\.?[0-9]*\b/g, " ")
+    .replace(/_+/g, " ")
+    .trim();
+  if (cleaned) aliases.add(cleaned);
+
+  return [...aliases];
+}
+
+/** 개정 정보가 이전 버전과 같은지 비교한다 */
+export function isSameRevision(
+  a: { revisionNo: string | null; revisionDate: string | null },
+  b: { revisionNo: string | null; revisionDate: string | null },
+): boolean {
+  if (!a.revisionNo && !a.revisionDate) return false;
+  return a.revisionNo === b.revisionNo && a.revisionDate === b.revisionDate;
+}
+
+function readDocType(fileName: string): string | null {
+  if (/\bCBTR\b/i.test(fileName)) return "CBTR";
+  if (/\bCBTC\b/i.test(fileName)) return "CBTC";
+  return null;
+}
+
+/**
+ * 문서 본문 첫 줄로 제목을 추정하는 방식은 인증서·표 위주 PDF에서 자주 어긋난다
+ * (예: "T e s t R e p o rt"처럼 글자 사이가 벌어지거나, "Ref. Certif. No"·표 데이터
+ * 한 줄이 뽑히는 경우). 이런 문서는 오히려 파일명이 더 설명적이므로, 본문에
+ * "제목:"·"문서명:"이 명시된 경우가 아니면 파일명을 기본으로 쓴다.
+ */
+function extractTitle(head: string, fileName: string): string | null {
+  const labeled = head.match(TITLE_PATTERN);
+  if (labeled) return labeled[1].trim().slice(0, 80);
+
+  const fromFileName = titleFromFileName(fileName);
+  if (fromFileName) return fromFileName;
+
+  return path.basename(fileName, path.extname(fileName)) || null;
+}
+
+function titleFromFileName(fileName: string): string | null {
+  const base = path.basename(fileName, path.extname(fileName));
+  const cleaned = base.replace(/[_]+/g, " ").replace(/\s+/g, " ").trim();
+  return cleaned || null;
+}
+
+function matchText(target: string, pattern: RegExp): string | null {
+  const found = target.match(pattern);
+  return found ? found[1].replace(/\s+/g, " ").trim() || null : null;
+}
+
+function matchFirst(target: string, patterns: RegExp[]): string | null {
+  for (const pattern of patterns) {
+    const found = target.match(pattern);
+    if (found) return found[1];
+  }
+  return null;
+}
+
+function matchDate(target: string, patterns: RegExp[]): string | null {
+  for (const pattern of patterns) {
+    const found = target.match(pattern);
+    if (found) return toIsoDate(found[1], found[2], found[3]);
+  }
+  return null;
+}
+
+function matchDateInFileName(fileName: string): string | null {
+  // "241010_03" 같은 일련번호를 날짜로 오인하지 않도록 연도를 19xx·20xx로 제한한다
+  const found = fileName.match(/((?:19|20)[0-9]{2})[-._]?([0-9]{2})[-._]?([0-9]{2})/);
+  return found ? toIsoDate(found[1], found[2], found[3]) : null;
+}
+
+function toIsoDate(year: string, month: string, day: string): string | null {
+  const y = Number(year);
+  const m = Number(month);
+  const d = Number(day);
+  if (y < 1990 || y > 2100 || m < 1 || m > 12 || d < 1 || d > 31) return null;
+  return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+}
+
+function slug(text: string): string {
+  return text
+    .replace(/[^0-9A-Za-z가-힣]+/g, " ")
+    .trim()
+    .replace(/\s+/g, "_");
+}

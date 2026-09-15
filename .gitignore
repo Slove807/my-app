@@ -39,3 +39,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# 업로드된 규정 문서 (대외비·개인정보가 있을 수 있어 커밋하지 않는다)
+/data
+
+# 삭제 대신 옮겨두는 폴더
+/trash-can
+
+# 이 PC에만 해당하는 로컬 설정 (팀과 공유하지 않음)
+.claude/settings.local.json
