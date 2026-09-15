@@ -18,6 +18,12 @@ export const SCAN_CACHE_FILE = path.join(DATA_ROOT, "scan-cache.json");
 /** 파일 현황(생성·삭제·수정·이름변경) 추적 기록 */
 export const INVENTORY_FILE = path.join(DATA_ROOT, "inventory.json");
 
+/**
+ * 본문을 읽을 수 없는 스캔 문서의 ★기본정보를 담당자가 직접 적어 두는 파일.
+ * 파일명을 키로 쓰고, 적어 둔 값은 본문에서 읽은 값보다 우선한다.
+ */
+export const MANUAL_META_FILE = path.join(DATA_ROOT, "manual-meta.json");
+
 /** 현황 추적에서 따라 내려갈 최대 깊이 */
 export const MAX_INVENTORY_DEPTH = 12;
 

@@ -140,7 +140,9 @@ function readCbReport(head: string, fullText: string, fileName: string): Revisio
   // 원본(개정 0)은 그런 문장이 없으므로 "최초 발행"으로 표시한다.
   const reasonMatch = matchText(flatFullText, CB_REASON);
   const reasonForIssue = reasonMatch
-    ? reasonMatch.slice(0, 500)
+    // 개정 사유는 바뀐 항목을 줄줄이 나열해 1,000자를 넘기도 한다.
+    // 500자로 자르면 마지막 항목이 문장 중간에서 끊겨 사유가 누락된 것처럼 보인다.
+    ? reasonMatch.slice(0, 3000)
     : revisionNo === "0"
       ? "최초 발행"
       : null;

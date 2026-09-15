@@ -17,7 +17,7 @@ export type RevisionInfo = {
   docType: string | null;
   /** 같은 계보의 문서를 하나로 묶는 축. 개정본은 원본 성적서 번호, 원본은 자기 자신 */
   chainAnchor: string | null;
-  /** Test item description (장비명) */
+  /** Test item description (품목명) */
   equipmentName: string | null;
   /** Name of Testing Laboratory (시험기관) */
   testingLab: string | null;
@@ -81,7 +81,7 @@ export type DocVersion = {
   changeSummary: ChangeSummary | null;
   /** ★기본정보: 모델명 */
   model: string | null;
-  /** ★기본정보: 장비명 */
+  /** ★기본정보: 품목명 */
   equipmentName: string | null;
   /** ★기본정보: 시험기관 */
   testingLab: string | null;
@@ -91,8 +91,10 @@ export type DocVersion = {
   reasonForIssue: string | null;
   /** ★기본정보: 제품군 (스캔한 최상위 폴더명, 예: POTENZA) */
   productFamily: string | null;
-  /** ★기본정보: 시험항목 (스캔한 카테고리 이름, 예: IEC 기반 Safety 성적서) */
+  /** ★기본정보: 시험항목 (카테고리 이름 또는 적용 규격으로 판단한 시험 종류) */
   categoryLabel: string | null;
+  /** ★기본정보 일부를 담당자가 직접 입력했는지 (본문을 읽을 수 없는 스캔 문서) */
+  manualEntry: boolean;
   /** 이 성적서에 귀속된 CB Test Certificate 원본 (있으면). 별도 문서로 다루지 않고 이 버전에 붙인다 */
   certificate: {
     originalName: string;

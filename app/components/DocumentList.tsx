@@ -141,13 +141,18 @@ function BasicInfoTable({
     <div className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
       <p className="mb-2 text-sm font-semibold text-slate-800 dark:text-slate-100">
         v{displayNo} 기본정보
+        {version.manualEntry && (
+          <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-xs font-normal text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+            담당자 직접 입력
+          </span>
+        )}
       </p>
       <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs sm:grid-cols-3">
         <Meta label="★제품군" value={version.productFamily ?? "-"} />
-        <Meta label="★장비명" value={version.equipmentName ?? "-"} />
+        <Meta label="★품목명" value={version.equipmentName ?? "-"} />
         <Meta label="★모델명" value={version.model ?? "-"} />
         <Meta label="★시험항목" value={version.categoryLabel ?? "-"} />
-        <Meta label="★성적서 번호" value={version.reportNo ?? "-"} />
+        <Meta label="★성적서/보고서 번호" value={version.reportNo ?? "-"} />
         <Meta label="★시험기관" value={version.testingLab ?? "-"} />
         <Meta label="★발행일" value={version.revisionDate ?? "-"} />
         <Meta label="★개정번호" value={version.revisionNo ?? "-"} />

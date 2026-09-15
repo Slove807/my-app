@@ -18,7 +18,13 @@ import {
   isExcludedFolder,
   isExcludedFromScan,
 } from "./config";
-import { categorize, categoryFolderPaths, EMC_TEST_LABEL, type DocCategory } from "./categories";
+import {
+  categorize,
+  categoryFolderPaths,
+  testLabelForStandard,
+  type DocCategory,
+} from "./categories";
+import { applyManualMeta, findManualMeta } from "./manual-meta";
 import { compareTexts } from "./compare";
 import { ExtractError, extractText, isKnownExtension } from "./extract";
 import {
@@ -130,16 +136,19 @@ export async function processIncoming(params: {
     );
   }
 
-  const info = extractRevisionInfo(text, originalName);
+  const extracted = extractRevisionInfo(text, originalName);
   const docKey = makeDocKey(text, originalName);
+
+  // 스캔(이미지)으로만 된 PDF는 본문에 글자가 없어 아무것도 뽑을 수 없다.
+  // 담당자가 data/manual-meta.json에 적어 둔 값이 있으면 그것으로 채운다.
+  const manual = await findManualMeta(originalName);
+  const info = manual ? applyManualMeta(extracted, manual) : extracted;
   const title = info.title ?? docKey;
 
-  // IEC 60601-1-2(EMC 협력 표준)를 적용 규격으로 쓰는 문서는 어느 폴더에서 나왔든
-  // 시험항목을 EMC test로 표시한다 (요청 1번)
+  // 적용 규격으로 무슨 시험인지 판단되면(IEC 60601-1-2 → EMC test 등) 폴더에서 정한
+  // 카테고리 이름보다 그 값을 먼저 쓴다
   const resolvedCategoryLabel =
-    info.appliedStandard && /60601-1-2\b/.test(info.appliedStandard)
-      ? EMC_TEST_LABEL
-      : categoryLabel;
+    testLabelForStandard(info.appliedStandard) ?? manual?.categoryLabel ?? categoryLabel;
 
   if (!info.revisionNo && !info.revisionDate) {
     warnings.push(
@@ -170,6 +179,7 @@ export async function processIncoming(params: {
       changeSummary: null,
       productFamily,
       categoryLabel: resolvedCategoryLabel,
+      manualEntry: Boolean(manual),
     });
     record.title = title;
     record.versions.push(version);
@@ -206,6 +216,7 @@ export async function processIncoming(params: {
       sourcePath,
       productFamily,
       categoryLabel: resolvedCategoryLabel,
+      manualEntry: Boolean(manual),
     });
 
     return {
@@ -235,6 +246,7 @@ export async function processIncoming(params: {
           sourcePath,
           productFamily,
           categoryLabel: resolvedCategoryLabel,
+          manualEntry: Boolean(manual),
         });
 
         return {
@@ -314,6 +326,7 @@ export async function processIncoming(params: {
     changeSummary,
     productFamily,
     categoryLabel: resolvedCategoryLabel,
+    manualEntry: Boolean(manual),
   });
 
   record.versions.push(version);
@@ -373,9 +386,10 @@ async function refreshVersionMeta(
     sourcePath: string | null;
     productFamily: string | null;
     categoryLabel: string | null;
+    manualEntry: boolean;
   },
 ): Promise<void> {
-  const { info, sourcePath, productFamily, categoryLabel } = params;
+  const { info, sourcePath, productFamily, categoryLabel, manualEntry } = params;
   const before = JSON.stringify(version);
 
   // 개정번호·개정일자는 버전을 가르는 기준이자 비교 순서를 정하는 값이라, 이미 들어 있는 값은
@@ -396,6 +410,7 @@ async function refreshVersionMeta(
   version.reasonForIssue = info.reasonForIssue ?? version.reasonForIssue;
   version.productFamily = productFamily ?? version.productFamily;
   version.categoryLabel = categoryLabel ?? version.categoryLabel;
+  version.manualEntry = manualEntry;
 
   if (JSON.stringify(version) !== before) await saveRecord(record);
 }
@@ -957,6 +972,7 @@ async function writeVersion(params: {
   changeSummary: DocVersion["changeSummary"];
   productFamily: string | null;
   categoryLabel: string | null;
+  manualEntry: boolean;
 }): Promise<DocVersion> {
   const { docKey, versionNo, buffer, text, originalName, info } = params;
   const dir = path.join(ARCHIVE_DIR, docKey);
@@ -992,6 +1008,7 @@ async function writeVersion(params: {
     reasonForIssue: info.reasonForIssue,
     productFamily: params.productFamily,
     categoryLabel: params.categoryLabel,
+    manualEntry: params.manualEntry,
     certificate: null,
   };
 }

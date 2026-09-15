@@ -15,7 +15,7 @@ export type DocCategory = {
 export const POTENZA_CATEGORIES: DocCategory[] = [
   {
     key: "safety",
-    label: "IEC 기반 Safety 성적서",
+    label: "Safety report",
     folders: [
       "01. 미국FDA_특허회피팁(24.11)\\3. Safety 성적서",
       "02. 포텐자 LCD 추가건(25.05)\\Safety",
@@ -87,11 +87,20 @@ export const POTENZA_CATEGORIES: DocCategory[] = [
 ];
 
 /**
- * IEC 60601-1-2(EMC 협력 표준)를 적용 규격으로 쓰는 문서는 어느 폴더에서 나왔든
- * 시험항목을 "EMC test"로 표시한다. 폴더로 묶는 카테고리 이름과 달리, 이 값은
- * 본문의 적용 규격을 보고 판단한 "무슨 시험인지"를 나타낸다.
+ * 본문의 적용 규격을 보고 판단하는 시험항목. 폴더로 묶는 카테고리 이름과 달리
+ * "무슨 시험인지"를 나타내므로, 어느 폴더에서 나왔든 이 값을 먼저 쓴다.
  */
-export const EMC_TEST_LABEL = "EMC test";
+const TEST_LABEL_BY_STANDARD: { pattern: RegExp; label: string }[] = [
+  { pattern: /60601-1-2\b/, label: "EMC test" },
+  { pattern: /60601-1-6\b/, label: "Usability test report" },
+];
+
+export function testLabelForStandard(appliedStandard: string | null): string | null {
+  if (!appliedStandard) return null;
+  return (
+    TEST_LABEL_BY_STANDARD.find((entry) => entry.pattern.test(appliedStandard))?.label ?? null
+  );
+}
 
 /** rootPath 기준 카테고리 폴더의 전체 경로 목록을 돌려준다 */
 export function categoryFolderPaths(
