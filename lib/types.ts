@@ -95,6 +95,12 @@ export type DocVersion = {
   categoryLabel: string | null;
   /** ★기본정보 일부를 담당자가 직접 입력했는지 (본문을 읽을 수 없는 스캔 문서) */
   manualEntry: boolean;
+  /** 본문을 원문에서 그대로 읽지 못해 OCR로 알아본 글자인지 (오탈자가 섞일 수 있음) */
+  ocrUsed: boolean;
+  /** ★기본정보: 최신 규격 (구글 검색으로 확인한 최신판). 더 새 판이 없으면 적용 규격과 같다 */
+  latestStandard: string | null;
+  /** 최신 규격을 확인한 근거 주소 */
+  latestStandardSource: string | null;
   /** 이 성적서에 귀속된 CB Test Certificate 원본 (있으면). 별도 문서로 다루지 않고 이 버전에 붙인다 */
   certificate: {
     originalName: string;

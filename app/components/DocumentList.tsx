@@ -127,10 +127,9 @@ function BasicInfoTable({
   latest: DocVersion;
   displayNo: number;
 }) {
-  const sameStandard =
-    version.appliedStandard && latest.appliedStandard
-      ? version.appliedStandard === latest.appliedStandard
-      : null;
+  // 최신 규격은 구글 검색으로 확인해 둔 값을 쓰고, 확인하지 못했으면 적용 규격을 그대로 보여 준다
+  const latestStandard =
+    version.latestStandard ?? version.appliedStandard ?? latest.appliedStandard ?? null;
 
   const fileHref = `/api/documents/${docKey}/file?version=${version.version}`;
   const certificateHref = version.certificate
@@ -144,6 +143,11 @@ function BasicInfoTable({
         {version.manualEntry && (
           <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-xs font-normal text-slate-600 dark:bg-slate-800 dark:text-slate-300">
             담당자 직접 입력
+          </span>
+        )}
+        {version.ocrUsed && (
+          <span className="ml-2 rounded bg-amber-50 px-1.5 py-0.5 text-xs font-normal text-amber-800 dark:bg-amber-950 dark:text-amber-200">
+            스캔본 OCR (오탈자 가능)
           </span>
         )}
       </p>
@@ -161,15 +165,27 @@ function BasicInfoTable({
           value={version.appliedStandard ?? "-"}
           full
         />
-        <Meta
-          label="★최신 규격"
-          value={
-            latest.appliedStandard
-              ? `${latest.appliedStandard}${sameStandard === false ? " (이 버전과 다름)" : ""}`
-              : "-"
-          }
-          full
-        />
+        <div className="col-span-full">
+          <dt className="text-slate-500 dark:text-slate-400">★최신 규격</dt>
+          <dd className="break-words text-slate-800 dark:text-slate-200">
+            {latestStandard ?? "-"}
+            {latestStandard && latestStandard !== version.appliedStandard && (
+              <span className="ml-1 text-amber-700 dark:text-amber-300">
+                (이 성적서의 적용 규격보다 새 판)
+              </span>
+            )}
+            {version.latestStandardSource && (
+              <a
+                href={version.latestStandardSource}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="ml-2 text-sky-700 underline hover:text-sky-900 dark:text-sky-400 dark:hover:text-sky-300"
+              >
+                근거
+              </a>
+            )}
+          </dd>
+        </div>
         <Meta label="★발행 및 개정사유" value={version.reasonForIssue ?? "-"} full />
         <div className="col-span-full">
           <dt className="text-slate-500 dark:text-slate-400">★성적서 링크</dt>

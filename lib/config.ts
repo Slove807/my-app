@@ -57,6 +57,36 @@ export const MAX_FILE_BYTES = 120 * 1024 * 1024;
 /** 챗봇 컨텍스트에 넣을 문서당 최대 글자 수 */
 export const CHAT_CONTEXT_CHARS = 6000;
 
+/** 스캔(이미지) PDF에서 글자를 읽어내는 OCR 설정 */
+export const OCR_ENABLED = process.env.OCR_ENABLED !== "false";
+/** OCR로 읽을 앞쪽 페이지 수. ★기본정보는 표지 근처에 모여 있다 */
+export const OCR_MAX_PAGES = Number(process.env.OCR_MAX_PAGES ?? 5);
+/** 한글 성적서가 많아 한국어와 영어를 함께 읽는다 */
+export const OCR_LANGUAGES = (process.env.OCR_LANGUAGES ?? "kor+eng").split("+");
+/** 이미지 배율. 낮으면 빠르지만 작은 글자를 놓친다 */
+export const OCR_SCALE = Number(process.env.OCR_SCALE ?? 2);
+/**
+ * 이 글자 수보다 적으면 스캔 문서로 보고 OCR을 돌린다.
+ * 스캔 PDF도 쪽 구분자("-- 1 of 9 --") 같은 부스러기 글자는 들어 있어, "글자가 아예 없는지"로
+ * 판단하면 OCR이 돌지 않는다.
+ */
+export const OCR_MIN_TEXT_CHARS = Number(process.env.OCR_MIN_TEXT_CHARS ?? 50);
+
+/** 동시에 돌릴 OCR 워커 수 (많을수록 빠르지만 메모리를 더 쓴다) */
+export const OCR_WORKERS = Number(process.env.OCR_WORKERS ?? 2);
+
+/**
+ * 적용 규격의 최신판을 구글 검색으로 확인하는 기능.
+ * 구글 Programmable Search(맞춤 검색) 키가 .env에 있어야 동작하고, 없으면 적용 규격을
+ * 그대로 최신 규격으로 보여 준다.
+ */
+export const STANDARD_LOOKUP_ENABLED = process.env.STANDARD_LOOKUP_ENABLED !== "false";
+export const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY ?? "";
+export const GOOGLE_CSE_ID = process.env.GOOGLE_CSE_ID ?? "";
+/** 확인 결과를 적어 두는 파일 (규격 개정은 잦지 않아 한동안 재사용한다) */
+export const STANDARD_CACHE_FILE = path.join(DATA_ROOT, "standard-cache.json");
+export const STANDARD_CACHE_TTL_DAYS = Number(process.env.STANDARD_CACHE_TTL_DAYS ?? 30);
+
 /** 요약에 사용할 OpenAI 모델 */
 export const OPENAI_MODEL = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
 

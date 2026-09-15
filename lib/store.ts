@@ -25,6 +25,7 @@ import {
   type DocCategory,
 } from "./categories";
 import { applyManualMeta, findManualMeta } from "./manual-meta";
+import { findLatestStandard } from "./standard-lookup";
 import { compareTexts } from "./compare";
 import { ExtractError, extractText, isKnownExtension } from "./extract";
 import {
@@ -103,8 +104,9 @@ export async function processIncoming(params: {
   }
 
   let text: string;
+  let usedOcr: boolean;
   try {
-    text = await extractText(buffer, originalName);
+    ({ text, usedOcr } = await extractText(buffer, originalName));
   } catch (error) {
     return {
       status: "error",
@@ -150,6 +152,11 @@ export async function processIncoming(params: {
   const resolvedCategoryLabel =
     testLabelForStandard(info.appliedStandard) ?? manual?.categoryLabel ?? categoryLabel;
 
+  // 적용 규격에 더 새로운 판이 나왔는지 확인한다 (결과는 파일에 적어 두고 재사용한다)
+  const latestStandard = info.appliedStandard
+    ? await findLatestStandard(info.appliedStandard)
+    : null;
+
   if (!info.revisionNo && !info.revisionDate) {
     warnings.push(
       "문서에서 개정번호와 개정일자를 찾지 못해 본문 내용으로만 변경 여부를 확인했습니다.",
@@ -180,6 +187,8 @@ export async function processIncoming(params: {
       productFamily,
       categoryLabel: resolvedCategoryLabel,
       manualEntry: Boolean(manual),
+      ocrUsed: usedOcr,
+      latestStandard,
     });
     record.title = title;
     record.versions.push(version);
@@ -194,6 +203,40 @@ export async function processIncoming(params: {
       revisionNo: info.revisionNo,
       revisionDate: info.revisionDate,
       changeSummary: null,
+      warnings,
+    };
+  }
+
+  // 예전에 본문을 못 읽어 빈 채로 보관해 둔 같은 파일이 있으면, 새 개정본이 아니라
+  // 그 버전을 채워 넣는다 (스캔 문서를 OCR로 다시 읽어낸 경우).
+  const emptyTwin = record.versions.find(
+    (version) => version.charCount === 0 && version.originalName === originalName,
+  );
+  if (emptyTwin) {
+    await writeVersionText(docKey, emptyTwin.textFile, text);
+    emptyTwin.charCount = text.length;
+    emptyTwin.ocrUsed = usedOcr;
+    await refreshVersionMeta(record, emptyTwin, {
+      info,
+      sourcePath,
+      productFamily,
+      categoryLabel: resolvedCategoryLabel,
+      manualEntry: Boolean(manual),
+      latestStandard,
+    });
+    await saveRecord(record);
+
+    return {
+      status: "updated",
+      message: `'${record.title}': 본문을 읽지 못해 비어 있던 v${emptyTwin.version}을 ${
+        usedOcr ? "OCR로 읽어" : "다시 읽어"
+      } 채웠습니다.`,
+      docKey,
+      title: record.title,
+      version: emptyTwin.version,
+      revisionNo: info.revisionNo,
+      revisionDate: info.revisionDate,
+      changeSummary: emptyTwin.changeSummary,
       warnings,
     };
   }
@@ -217,6 +260,7 @@ export async function processIncoming(params: {
       productFamily,
       categoryLabel: resolvedCategoryLabel,
       manualEntry: Boolean(manual),
+      latestStandard,
     });
 
     return {
@@ -247,6 +291,7 @@ export async function processIncoming(params: {
           productFamily,
           categoryLabel: resolvedCategoryLabel,
           manualEntry: Boolean(manual),
+          latestStandard,
         });
 
         return {
@@ -327,6 +372,8 @@ export async function processIncoming(params: {
     productFamily,
     categoryLabel: resolvedCategoryLabel,
     manualEntry: Boolean(manual),
+    ocrUsed: usedOcr,
+    latestStandard,
   });
 
   record.versions.push(version);
@@ -387,9 +434,10 @@ async function refreshVersionMeta(
     productFamily: string | null;
     categoryLabel: string | null;
     manualEntry: boolean;
+    latestStandard: { latest: string; source: string | null } | null;
   },
 ): Promise<void> {
-  const { info, sourcePath, productFamily, categoryLabel, manualEntry } = params;
+  const { info, sourcePath, productFamily, categoryLabel, manualEntry, latestStandard } = params;
   const before = JSON.stringify(version);
 
   // 개정번호·개정일자는 버전을 가르는 기준이자 비교 순서를 정하는 값이라, 이미 들어 있는 값은
@@ -411,6 +459,8 @@ async function refreshVersionMeta(
   version.productFamily = productFamily ?? version.productFamily;
   version.categoryLabel = categoryLabel ?? version.categoryLabel;
   version.manualEntry = manualEntry;
+  version.latestStandard = latestStandard?.latest ?? version.latestStandard ?? null;
+  version.latestStandardSource = latestStandard?.source ?? version.latestStandardSource ?? null;
 
   if (JSON.stringify(version) !== before) await saveRecord(record);
 }
@@ -765,8 +815,13 @@ async function describeRecord(record: DocRecord): Promise<string> {
     })
     .join("\n");
 
+  // OCR로 읽은 본문은 기계가 알아본 글자라 오탈자가 섞인다. 챗봇이 이를 알고 답하도록 알려 준다.
+  const readingNote = latest.ocrUsed
+    ? "\n- 주의: 이 문서는 스캔본이라 OCR로 읽었습니다. 글자가 잘못 읽혔을 수 있으니 숫자·모델명을 단정하지 말고 원본 확인을 함께 안내하세요."
+    : "";
+
   return `### 문서명: ${record.title}
-- 최신 버전: v${latest.version} / 개정번호 ${latest.revisionNo ?? "없음"} / 개정일자 ${latest.revisionDate ?? "없음"}
+- 최신 버전: v${latest.version} / 개정번호 ${latest.revisionNo ?? "없음"} / 개정일자 ${latest.revisionDate ?? "없음"}${readingNote}
 - 변경 이력:
 ${summaries || "  (변경 이력 없음)"}
 - 최신 본문:
@@ -952,6 +1007,11 @@ async function saveRecord(record: DocRecord): Promise<void> {
   );
 }
 
+/** 보관된 본문 텍스트를 덮어쓴다 (읽지 못했던 문서를 다시 읽어냈을 때) */
+async function writeVersionText(docKey: string, textFile: string, text: string): Promise<void> {
+  await writeFile(path.join(ARCHIVE_DIR, docKey, textFile), text, "utf8");
+}
+
 async function readVersionText(docKey: string, textFile: string): Promise<string> {
   try {
     return await readFile(path.join(ARCHIVE_DIR, docKey, textFile), "utf8");
@@ -973,6 +1033,8 @@ async function writeVersion(params: {
   productFamily: string | null;
   categoryLabel: string | null;
   manualEntry: boolean;
+  ocrUsed: boolean;
+  latestStandard: { latest: string; source: string | null } | null;
 }): Promise<DocVersion> {
   const { docKey, versionNo, buffer, text, originalName, info } = params;
   const dir = path.join(ARCHIVE_DIR, docKey);
@@ -1009,6 +1071,9 @@ async function writeVersion(params: {
     productFamily: params.productFamily,
     categoryLabel: params.categoryLabel,
     manualEntry: params.manualEntry,
+    ocrUsed: params.ocrUsed,
+    latestStandard: params.latestStandard?.latest ?? null,
+    latestStandardSource: params.latestStandard?.source ?? null,
     certificate: null,
   };
 }

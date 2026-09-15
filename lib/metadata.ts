@@ -81,6 +81,18 @@ const INHOUSE_DATE_PATTERNS = [
 const INHOUSE_MODEL = /\n([A-Za-z][A-Za-z0-9 .-]{1,30}?)\s+Page\s*[0-9]+\s*\/\s*[0-9]+/;
 // 파일명 앞머리의 대괄호 제품명 (예: "[POTENZA] JE-PZ-LAR Lifetime Analysis Report_EN.pdf")
 const INHOUSE_FILE_MODEL = /^\[([^\]]{1,40})\]/;
+// --- (5) 국내 시험기관 성적서 (식약처 지정 시험기관 서식) ---
+// 대부분 종이를 스캔한 PDF라 OCR로 읽어 들이며, 글자가 살짝 깨지거나 칸 사이가 여러 칸
+// 띄워진 형태로 들어온다. 그래서 값 사이를 "공백 여러 개"로 잡고 느슨하게 찾는다.
+const LAB_MARKER = /Certificate of Laboratory Testing|MFDS Designation|시험성적서/i;
+const LAB_ISSUE_NO = /Issue No\.?\s+([A-Z]{2,}[0-9]{2}-[0-9]{3,})/i;
+const LAB_DATE =
+  /Test Completion Date\s+([0-9]{4})\s*[.\-/]\s*([0-9]{1,2})\s*[.\-/]\s*([0-9]{1,2})/i;
+const LAB_PRODUCT = /Product Name\s{2,}([^\n]{1,40}?)\s{2,}/;
+// 본문 어디에 있든 규격 표기를 찾는다 (예: ASTM F1980-21, ISO 10993-5, EN 556-1)
+const STANDARD_DESIGNATION =
+  /\b(?:ASTM|ISO|IEC|EN|AAMI|USP|KS)\s+[A-Z]?[0-9]{3,5}(?:-[0-9]{1,4})?(?::[0-9]{4})?\b/;
+
 // 개정 이력표의 첫 줄 (예: "0 2019.03.12 Initially prepared", "0 2023.10.12 - Newly established")
 const INHOUSE_HISTORY =
   /Revision History[\s\S]{0,300}?\n\s*([0-9]+)\s+[0-9]{4}[.\-/][0-9]{1,2}[.\-/][0-9]{1,2}\s+(?:-\s+)?([^\n]+)/i;
@@ -230,11 +242,29 @@ function readInhouseModel(head: string, fileName: string): string | null {
   return fromFileName ? fromFileName[1].trim() : null;
 }
 
+/**
+ * 국내 시험기관 성적서에서 성적서 번호·품목명·발행일·적용 규격을 읽는다.
+ * 스캔본을 OCR로 읽은 글자라 오탈자가 섞일 수 있어, 확실히 알아볼 수 있는 항목만 가져온다.
+ */
+function readLabReportFields(head: string) {
+  if (!LAB_MARKER.test(head)) return null;
+
+  const date = head.match(LAB_DATE);
+  return {
+    reportNo: matchText(head, LAB_ISSUE_NO),
+    model: matchText(head, LAB_PRODUCT),
+    revisionDate: date ? toIsoDate(date[1], date[2], date[3]) : null,
+    appliedStandard: head.match(STANDARD_DESIGNATION)?.[0].replace(/\s+/g, " ") ?? null,
+  };
+}
+
 /** 국문 사내 규정에서 개정 정보를 읽는다 */
 function readKoreanRegulation(head: string, fileName: string): RevisionInfo {
   const inhouse = readInhouseFields(head, fileName);
+  const lab = readLabReportFields(head);
   let revisionNo = matchFirst(head, REVISION_NO_PATTERNS) ?? inhouse?.revisionNo ?? null;
-  let revisionDate = matchDate(head, REVISION_DATE_PATTERNS) ?? inhouse?.revisionDate ?? null;
+  let revisionDate =
+    matchDate(head, REVISION_DATE_PATTERNS) ?? inhouse?.revisionDate ?? lab?.revisionDate ?? null;
   let foundIn: RevisionInfo["foundIn"] = revisionNo || revisionDate ? "본문" : "없음";
 
   if (!revisionNo) {
@@ -258,16 +288,16 @@ function readKoreanRegulation(head: string, fileName: string): RevisionInfo {
     revisionNo,
     revisionDate,
     foundIn,
-    model: inhouse?.model ?? null,
+    model: inhouse?.model ?? lab?.model ?? null,
     // standard·docType은 비워 둔다. 값을 채우면 makeDocKey가 파일명 기준 묶음에서
     // 벗어나 같은 문서가 다른 키로 갈라진다.
     standard: null,
-    reportNo: inhouse?.reportNo ?? null,
+    reportNo: inhouse?.reportNo ?? lab?.reportNo ?? null,
     docType: null,
     chainAnchor: null,
     equipmentName: null,
     testingLab: inhouse?.testingLab ?? null,
-    appliedStandard: null,
+    appliedStandard: lab?.appliedStandard ?? null,
     reasonForIssue: inhouse?.reasonForIssue ?? null,
   };
 }

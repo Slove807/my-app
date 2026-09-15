@@ -48,3 +48,7 @@ next-env.d.ts
 
 # 이 PC에만 해당하는 로컬 설정 (팀과 공유하지 않음)
 .claude/settings.local.json
+
+# OCR 언어 데이터 (tesseract.js가 실행 중에 내려받아 캐시한다)
+*.traineddata
+*.traineddata.gz
