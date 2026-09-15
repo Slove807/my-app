@@ -99,7 +99,7 @@ async function extractPdf(buffer: Buffer): Promise<ExtractResult> {
 
 /** 공백을 뺀 실제 글자 수 */
 function countLetters(text: string): number {
-  return text.replace(/s+/g, "").length;
+  return text.replace(/\s+/g, "").length;
 }
 
 function stripPageNoise(text: string): string {

@@ -85,9 +85,21 @@ const INHOUSE_FILE_MODEL = /^\[([^\]]{1,40})\]/;
 // 대부분 종이를 스캔한 PDF라 OCR로 읽어 들이며, 글자가 살짝 깨지거나 칸 사이가 여러 칸
 // 띄워진 형태로 들어온다. 그래서 값 사이를 "공백 여러 개"로 잡고 느슨하게 찾는다.
 const LAB_MARKER = /Certificate of Laboratory Testing|MFDS Designation|시험성적서/i;
-const LAB_ISSUE_NO = /Issue No\.?\s+([A-Z]{2,}[0-9]{2}-[0-9]{3,})/i;
+// 성적서 번호는 "Issue No."가 깨져 읽히는 경우가 많아 같은 값이 적힌 "Receipt No."도 함께 본다
+const LAB_ISSUE_NO_PATTERNS = [
+  /Issue\s*No\.?\s*\|?\s*([A-Z]{2,}[0-9]{2,4}-[0-9]{3,})/i,
+  /Receipt\s*No[.,]?\s*\|?\s*([A-Z]{2,}-?[0-9]{2,4}-[0-9]{3,})/i,
+];
+// 날짜는 "2023.01. 10"처럼 숫자로 적히기도 하고 "Dec.29.2022"처럼 월 이름으로 적히기도 한다
 const LAB_DATE =
-  /Test Completion Date\s+([0-9]{4})\s*[.\-/]\s*([0-9]{1,2})\s*[.\-/]\s*([0-9]{1,2})/i;
+  /Test Completion Date\s*\|?\s*([0-9]{4})\s*[.\-/]\s*([0-9]{1,2})\s*[.\-/]\s*([0-9]{1,2})/i;
+const LAB_DATE_MONTH_NAME =
+  /Test Completion Date\s*\|?\s*([A-Z][a-z]{2})[a-z]*\.?\s*([0-9]{1,2})[.,]?\s*([0-9]{4})/;
+const MONTH_NAMES = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+// 파일명에 들어 있는 성적서 번호 (예: MTK-2022-000486_3 years Certificate.pdf)
+// 번호 뒤에 밑줄이 바로 붙는 파일명이 많아(MTK-2022-000486_3 years...), 끝을 \b 대신
+// "숫자가 더 이어지지 않음"으로 잡는다
+const FILE_REPORT_NO = /\b([A-Z]{2,}-?[0-9]{2,4}-[0-9]{3,})(?![0-9])/;
 const LAB_PRODUCT = /Product Name\s{2,}([^\n]{1,40}?)\s{2,}/;
 // 본문 어디에 있든 규격 표기를 찾는다 (예: ASTM F1980-21, ISO 10993-5, EN 556-1)
 const STANDARD_DESIGNATION =
@@ -246,22 +258,33 @@ function readInhouseModel(head: string, fileName: string): string | null {
  * 국내 시험기관 성적서에서 성적서 번호·품목명·발행일·적용 규격을 읽는다.
  * 스캔본을 OCR로 읽은 글자라 오탈자가 섞일 수 있어, 확실히 알아볼 수 있는 항목만 가져온다.
  */
-function readLabReportFields(head: string) {
+function readLabReportFields(head: string, fileName: string) {
   if (!LAB_MARKER.test(head)) return null;
 
-  const date = head.match(LAB_DATE);
   return {
-    reportNo: matchText(head, LAB_ISSUE_NO),
+    // 파일명에 적힌 성적서 번호를 먼저 쓴다. 사람이 적어 둔 값이라, 숫자를 헷갈리기 쉬운
+    // OCR 결과보다 믿을 만하다 (실제로 000836을 000835로, 000486을 000485로 읽는 일이 있었다).
+    reportNo: fileName.match(FILE_REPORT_NO)?.[1] ?? matchFirst(head, LAB_ISSUE_NO_PATTERNS),
     model: matchText(head, LAB_PRODUCT),
-    revisionDate: date ? toIsoDate(date[1], date[2], date[3]) : null,
+    revisionDate: readLabDate(head),
     appliedStandard: head.match(STANDARD_DESIGNATION)?.[0].replace(/\s+/g, " ") ?? null,
   };
+}
+
+function readLabDate(head: string): string | null {
+  const numeric = head.match(LAB_DATE);
+  if (numeric) return toIsoDate(numeric[1], numeric[2], numeric[3]);
+
+  const named = head.match(LAB_DATE_MONTH_NAME);
+  if (!named) return null;
+  const month = MONTH_NAMES.indexOf(named[1].toLowerCase());
+  return month < 0 ? null : toIsoDate(named[3], String(month + 1), named[2]);
 }
 
 /** 국문 사내 규정에서 개정 정보를 읽는다 */
 function readKoreanRegulation(head: string, fileName: string): RevisionInfo {
   const inhouse = readInhouseFields(head, fileName);
-  const lab = readLabReportFields(head);
+  const lab = readLabReportFields(head, fileName);
   let revisionNo = matchFirst(head, REVISION_NO_PATTERNS) ?? inhouse?.revisionNo ?? null;
   let revisionDate =
     matchDate(head, REVISION_DATE_PATTERNS) ?? inhouse?.revisionDate ?? lab?.revisionDate ?? null;
