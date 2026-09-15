@@ -53,3 +53,19 @@ export const CHAT_CONTEXT_CHARS = 6000;
 
 /** 요약에 사용할 OpenAI 모델 */
 export const OPENAI_MODEL = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
+
+/**
+ * 시험성적서가 아니라 부속 자료(IFU·장비명판·라벨·멸균지 등)인 파일은 스캔 대상에서 제외한다.
+ * (요청: IFU 제외, 장비명판 제외, 라벨 제외, 멸균지 제외)
+ */
+const EXCLUDED_FILENAME_PATTERNS = [/\bIFU\b/i, /장비\s*명판/, /라벨/, /멸균지/];
+
+export function isExcludedFromScan(fileName: string): boolean {
+  return EXCLUDED_FILENAME_PATTERNS.some((pattern) => pattern.test(fileName));
+}
+
+/**
+ * CB Test Certificate 파일명 패턴. 이런 파일은 스캔 순서를 맨 뒤로 미뤄, 짝이 되는
+ * CB Report(시험성적서)가 먼저 보관된 뒤에 처리되게 한다 (본문 기준 매칭이 가능해짐).
+ */
+export const CB_CERTIFICATE_FILENAME_PATTERN = /CB[\s_-]*certificate/i;

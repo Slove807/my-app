@@ -4,6 +4,7 @@ import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   ARCHIVE_DIR,
+  CB_CERTIFICATE_FILENAME_PATTERN,
   CHAT_CONTEXT_CHARS,
   DEFAULT_ROOT_DIR,
   DEFERRED_EXTENSIONS,
@@ -14,12 +15,15 @@ import {
   SCAN_BATCH_SIZE,
   SCAN_CACHE_FILE,
   SUPPORTED_EXTENSIONS,
+  isExcludedFromScan,
 } from "./config";
-import { categorize, categoryFolderPaths, type DocCategory } from "./categories";
+import { categorize, categoryFolderPaths, EMC_CATEGORY_LABEL, type DocCategory } from "./categories";
 import { compareTexts } from "./compare";
 import { ExtractError, extractText, isKnownExtension } from "./extract";
 import {
+  extractCertifiedReportNo,
   extractRevisionInfo,
+  isCbCertificate,
   isSameRevision,
   makeAliases,
   makeDocKey,
@@ -105,6 +109,19 @@ export async function processIncoming(params: {
     };
   }
 
+  // CB Test Certificate는 시험성적서와 별도 문서로 다루지 않고, 근거가 된 성적서 번호를 찾아
+  // 그 성적서의 해당 버전에 첨부만 한다 (요청 8번). 대응하는 성적서를 못 찾으면 아래로 계속 진행해
+  // 기존처럼 독립 문서로 보관한다.
+  if (isCbCertificate(text)) {
+    const attached = await tryAttachCertificate({
+      reportNo: extractCertifiedReportNo(text),
+      buffer,
+      originalName,
+      sourcePath,
+    });
+    if (attached) return attached;
+  }
+
   if (containsPersonalInfo) {
     // PRD 7번 결정: 개인정보가 있어도 경고만 남기고 진행한다
     warnings.push(
@@ -115,6 +132,13 @@ export async function processIncoming(params: {
   const info = extractRevisionInfo(text, originalName);
   const docKey = makeDocKey(text, originalName);
   const title = info.title ?? docKey;
+
+  // IEC 60601-1-2(EMC 협력 표준)를 적용 규격으로 쓰는 문서는 어느 폴더에서 나왔든
+  // 시험항목을 EMC test로 표시한다 (요청 1번)
+  const resolvedCategoryLabel =
+    info.appliedStandard && /60601-1-2\b/.test(info.appliedStandard)
+      ? EMC_CATEGORY_LABEL
+      : categoryLabel;
 
   if (!info.revisionNo && !info.revisionDate) {
     warnings.push(
@@ -144,7 +168,7 @@ export async function processIncoming(params: {
       containsPersonalInfo,
       changeSummary: null,
       productFamily,
-      categoryLabel,
+      categoryLabel: resolvedCategoryLabel,
     });
     record.title = title;
     record.versions.push(version);
@@ -268,7 +292,7 @@ export async function processIncoming(params: {
     containsPersonalInfo,
     changeSummary,
     productFamily,
-    categoryLabel,
+    categoryLabel: resolvedCategoryLabel,
   });
 
   record.versions.push(version);
@@ -313,6 +337,58 @@ export async function processIncoming(params: {
     changeSummary,
     warnings,
   };
+}
+
+/**
+ * CB Test Certificate를 근거가 된 시험성적서(CB Report)의 해당 버전에 첨부한다.
+ * 대응하는 성적서를 찾으면 별도 문서를 만들지 않고 여기서 바로 처리를 끝낸다.
+ */
+async function tryAttachCertificate(params: {
+  reportNo: string | null;
+  buffer: Buffer;
+  originalName: string;
+  sourcePath: string | null;
+}): Promise<ProcessResult | null> {
+  const { reportNo, buffer, originalName, sourcePath } = params;
+  if (!reportNo) return null;
+
+  const target = await findVersionByReportNo(reportNo);
+  if (!target) return null;
+
+  const { record, version } = target;
+  const storedFile = `v${String(version.version).padStart(3, "0")}__certificate__${sanitize(originalName)}`;
+  await mkdir(path.join(ARCHIVE_DIR, record.key), { recursive: true });
+  await writeFile(path.join(ARCHIVE_DIR, record.key, storedFile), buffer);
+
+  version.certificate = { originalName, sourcePath, storedFile };
+  await saveRecord(record);
+
+  return {
+    status: "updated",
+    message: `CB Test Certificate를 '${record.title}' 성적서(성적서 번호 ${reportNo})의 v${version.version}에 첨부했습니다. 별도 문서로 만들지 않았습니다.`,
+    docKey: record.key,
+    title: record.title,
+    version: version.version,
+    revisionNo: version.revisionNo,
+    revisionDate: version.revisionDate,
+    changeSummary: version.changeSummary,
+    warnings: [],
+  };
+}
+
+/** 성적서 번호(Report Number)로 보관 중인 문서의 해당 버전을 찾는다 */
+async function findVersionByReportNo(
+  reportNo: string,
+): Promise<{ record: DocRecord; version: DocVersion } | null> {
+  const entries = await readdir(ARCHIVE_DIR, { withFileTypes: true }).catch(() => []);
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const record = await readRecord(entry.name);
+    if (!record) continue;
+    const version = record.versions.find((item) => item.reportNo === reportNo);
+    if (version) return { record, version };
+  }
+  return null;
 }
 
 /**
@@ -648,6 +724,8 @@ async function collectFiles(rootPath: string): Promise<{
       }
 
       if (!entry.isFile()) continue;
+      // 시험성적서가 아닌 부속 자료(IFU·장비명판·라벨·멸균지 등)는 훑지 않는다
+      if (isExcludedFromScan(entry.name)) continue;
       const ext = path.extname(entry.name).toLowerCase();
 
       if ((DEFERRED_EXTENSIONS as readonly string[]).includes(ext)) {
@@ -662,7 +740,24 @@ async function collectFiles(rootPath: string): Promise<{
   }
 
   await walk(rootPath, 0);
-  return { files, deferredCount, reachedLimit };
+  return { files: sortCertificatesLast(files), deferredCount, reachedLimit };
+}
+
+/**
+ * CB Test Certificate로 보이는 파일을 목록 맨 뒤로 미룬다. 짝이 되는 CB Report(시험성적서)가
+ * 같은 스캔에서 먼저 처리·보관되어야 인증서를 성적서 번호로 찾아 첨부할 수 있기 때문이다.
+ */
+function sortCertificatesLast(files: string[]): string[] {
+  const normal: string[] = [];
+  const certificates: string[] = [];
+  for (const file of files) {
+    if (CB_CERTIFICATE_FILENAME_PATTERN.test(path.basename(file))) {
+      certificates.push(file);
+    } else {
+      normal.push(file);
+    }
+  }
+  return [...normal, ...certificates];
 }
 
 function describeReadError(error: unknown): string {
@@ -834,6 +929,7 @@ async function writeVersion(params: {
     reasonForIssue: info.reasonForIssue,
     productFamily: params.productFamily,
     categoryLabel: params.categoryLabel,
+    certificate: null,
   };
 }
 

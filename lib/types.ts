@@ -93,6 +93,12 @@ export type DocVersion = {
   productFamily: string | null;
   /** ★기본정보: 시험항목 (스캔한 카테고리 이름, 예: IEC 기반 Safety 성적서) */
   categoryLabel: string | null;
+  /** 이 성적서에 귀속된 CB Test Certificate 원본 (있으면). 별도 문서로 다루지 않고 이 버전에 붙인다 */
+  certificate: {
+    originalName: string;
+    sourcePath: string | null;
+    storedFile: string;
+  } | null;
 };
 
 /** 같은 문서의 버전들을 묶은 단위 */

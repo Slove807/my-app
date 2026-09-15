@@ -96,6 +96,7 @@ function DocumentCard({ document }: { document: DocRecord }) {
         {ordered.map((version, index) => (
           <div key={version.version}>
             <BasicInfoTable
+              docKey={document.key}
               version={version}
               latest={latest}
               displayNo={displayNo.get(version.version) ?? version.version}
@@ -116,10 +117,12 @@ function DocumentCard({ document }: { document: DocRecord }) {
 
 /** 요청하신 12개 항목(★기본정보)을 보고서 한 건 기준으로 보여준다 */
 function BasicInfoTable({
+  docKey,
   version,
   latest,
   displayNo,
 }: {
+  docKey: string;
   version: DocVersion;
   latest: DocVersion;
   displayNo: number;
@@ -128,6 +131,11 @@ function BasicInfoTable({
     version.appliedStandard && latest.appliedStandard
       ? version.appliedStandard === latest.appliedStandard
       : null;
+
+  const fileHref = `/api/documents/${docKey}/file?version=${version.version}`;
+  const certificateHref = version.certificate
+    ? `/api/documents/${docKey}/file?version=${version.version}&cert=1`
+    : null;
 
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
@@ -158,7 +166,34 @@ function BasicInfoTable({
           full
         />
         <Meta label="★발행 및 개정사유" value={version.reasonForIssue ?? "-"} full />
-        <Meta label="★성적서 링크" value={version.sourcePath ?? version.originalName} mono full />
+        <div className="col-span-full">
+          <dt className="text-slate-500 dark:text-slate-400">★성적서 링크</dt>
+          <dd className="break-words">
+            <a
+              href={fileHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-mono text-sky-700 underline hover:text-sky-900 dark:text-sky-400 dark:hover:text-sky-300"
+            >
+              {version.originalName}
+            </a>
+          </dd>
+        </div>
+        {certificateHref && (
+          <div className="col-span-full">
+            <dt className="text-slate-500 dark:text-slate-400">★CB Certificate</dt>
+            <dd className="break-words">
+              <a
+                href={certificateHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-mono text-sky-700 underline hover:text-sky-900 dark:text-sky-400 dark:hover:text-sky-300"
+              >
+                {version.certificate!.originalName}
+              </a>
+            </dd>
+          </div>
+        )}
       </dl>
     </div>
   );

@@ -13,7 +13,8 @@ const CB_ISSUE_DATE = /Date of issue[^\n:]*:\s*([0-9]{4})-([0-9]{2})-([0-9]{2})/
 const CB_MODEL = /Model\/Type reference[^\n:]*:\s*([^\n]+)/;
 // 표지에는 "Test Report Form No.", 다음 페이지부터는 "TRF No."로 표기가 다르다
 const CB_TRF = /(?:Test Report Form No\.|TRF No\.)[^\n:]*:?\s*([A-Za-z0-9_]+)/;
-const CB_REPORT_NO = /Report Number[^\n:]*:\s*([A-Z]{2,}[0-9]+)/;
+// 일부 시험기관(예: Nemko의 예전 서식)은 문자 없이 순수 숫자로만 성적서 번호를 매긴다 (예: 407809)
+const CB_REPORT_NO = /Report Number[^\n:]*:\s*([A-Za-z]*[0-9]+)/;
 // 개정본은 "...shall be used together with the Original test report No. REPxxxxx..."로
 // 원본 성적서 번호를 명시한다. 줄바꿈으로 끊길 수 있어 공백을 정리한 뒤 찾는다.
 const CB_ORIGINAL_REF = /Original test report\s*No\.?\s*([A-Z]{2,}[0-9]+)/i;
@@ -24,8 +25,19 @@ const CB_REASON =
 const CB_LAB =
   /Name of Testing Laboratory\s*preparing the Report[.\s]*:\s*(.+?)\s*Applicant/i;
 const CB_TEST_ITEM = /Test item description[.\s]*:\s*(.+?)\s*Trade Mark/i;
-// 규격 번호가 페이지 폭에 걸려 줄바꿈되는 경우가 있어 [\s\S]로 줄바꿈도 건너뛰게 한다
-const CB_STANDARD = /(?<!Non-)Standard[.\s]*:\s*([\s\S]+?)\s*Test procedure/i;
+// 규격 번호가 페이지 폭에 걸려 줄바꿈되는 경우가 있어 [\s\S]로 줄바꿈도 건너뛰게 한다.
+// EMC 성적서 표지에는 "Collateral Standard: ELECTROMAGNETIC disturbances..."처럼 점(leader dot) 없이
+// "Standard:"가 먼저 나오는 문장이 있어, 점 2개 이상(표 형식의 leader dot)이 뒤따르는 경우만
+// 실제 "Test specification: Standard....: IEC ..." 필드로 인정한다 (그렇지 않으면 그 문장부터
+// 한참 뒤의 진짜 필드까지 통째로 캡처되어 적용 규격에 엉뚱한 내용이 섞인다).
+const CB_STANDARD = /(?<!Non-)Standard\s*\.{2,}\s*:\s*([\s\S]+?)\s*Test procedure/i;
+
+// --- (3) CB Test Certificate (CB Report와 별도 문서로 다루지 않고, 근거가 된 성적서 번호만 뽑아 그 성적서에 귀속시킨다) ---
+const CB_CERT_MARKER = /CB\s*TEST\s*CERTIFICATE/i;
+// "Test Report Ref. No. ... REP035265" 또는 불어 병기본 "... constitue partie de ce Certificat ... 407809"
+// 형식 둘 다, 안내 문구 뒤에 혼자 줄을 이루는 성적서 번호를 찾는다.
+const CB_CERT_REPORT_REF =
+  /(?:Test Report Ref\.?\s*No\.?|constitue partie de ce Certificat)[\s\S]{0,250}?\n([A-Za-z0-9]{5,})\n/i;
 
 // --- (2) 국문 사내 규정 ---
 const REVISION_NO_PATTERNS = [
@@ -246,6 +258,17 @@ export function makeAliases(fileName: string, model: string | null): string[] {
   if (cleaned) aliases.add(cleaned);
 
   return [...aliases];
+}
+
+/** 이 문서가 시험성적서가 아니라 CB Test Certificate(인증서)인지 확인한다 */
+export function isCbCertificate(text: string): boolean {
+  return CB_CERT_MARKER.test(text.slice(0, 3000));
+}
+
+/** 인증서 본문에서 "이 인증서의 근거가 된 시험성적서 번호"를 찾는다 (예: REP035265, 407809) */
+export function extractCertifiedReportNo(text: string): string | null {
+  const match = text.match(CB_CERT_REPORT_REF);
+  return match ? match[1].toUpperCase() : null;
 }
 
 /** 개정 정보가 이전 버전과 같은지 비교한다 */
