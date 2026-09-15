@@ -88,10 +88,10 @@ export const POTENZA_CATEGORIES: DocCategory[] = [
 
 /**
  * IEC 60601-1-2(EMC 협력 표준)를 적용 규격으로 쓰는 문서는 어느 폴더에서 나왔든
- * 시험항목을 EMC test로 표시한다 (요청: "IEC 60601-1-2는 EMC test로 시험항목 변경").
+ * 시험항목을 "EMC test"로 표시한다. 폴더로 묶는 카테고리 이름과 달리, 이 값은
+ * 본문의 적용 규격을 보고 판단한 "무슨 시험인지"를 나타낸다.
  */
-export const EMC_CATEGORY_LABEL =
-  POTENZA_CATEGORIES.find((category) => category.key === "emc")?.label ?? "IEC 기반 EMC 성적서";
+export const EMC_TEST_LABEL = "EMC test";
 
 /** rootPath 기준 카테고리 폴더의 전체 경로 목록을 돌려준다 */
 export function categoryFolderPaths(

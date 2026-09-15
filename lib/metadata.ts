@@ -13,8 +13,9 @@ const CB_ISSUE_DATE = /Date of issue[^\n:]*:\s*([0-9]{4})-([0-9]{2})-([0-9]{2})/
 const CB_MODEL = /Model\/Type reference[^\n:]*:\s*([^\n]+)/;
 // 표지에는 "Test Report Form No.", 다음 페이지부터는 "TRF No."로 표기가 다르다
 const CB_TRF = /(?:Test Report Form No\.|TRF No\.)[^\n:]*:?\s*([A-Za-z0-9_]+)/;
-// 일부 시험기관(예: Nemko의 예전 서식)은 문자 없이 순수 숫자로만 성적서 번호를 매긴다 (예: 407809)
-const CB_REPORT_NO = /Report Number[^\n:]*:\s*([A-Za-z]*[0-9]+)/;
+// 일부 시험기관(예: Nemko의 예전 서식)은 문자 없이 순수 숫자로만 성적서 번호를 매기고(예: 407809),
+// 뒤에 "_1" 같은 꼬리표가 붙기도 한다(예: 380442_1)
+const CB_REPORT_NO = /Report Number[^\n:]*:\s*([A-Za-z]*[0-9]+(?:[_-][A-Za-z0-9]+)?)/;
 // 개정본은 "...shall be used together with the Original test report No. REPxxxxx..."로
 // 원본 성적서 번호를 명시한다. 줄바꿈으로 끊길 수 있어 공백을 정리한 뒤 찾는다.
 const CB_ORIGINAL_REF = /Original test report\s*No\.?\s*([A-Z]{2,}[0-9]+)/i;
@@ -22,8 +23,12 @@ const CB_ORIGINAL_REF = /Original test report\s*No\.?\s*([A-Z]{2,}[0-9]+)/i;
 // 각주(*) 앞까지만 잘라낸다. 문장이 길 수 있어 넉넉히 잡고 뒤에서 길이를 자른다.
 const CB_REASON =
   /The updates concerned in this (?:test )?report (?:are|is)(?: as follows)?[;:]?\s*(.+?)(?=\s*\*+\)|$)/i;
-const CB_LAB =
-  /Name of Testing Laboratory\s*preparing the Report[.\s]*:\s*(.+?)\s*Applicant/i;
+// 시험기관 표기는 두 가지다.
+//  (a) "... : Nemko Korea Co., Ltd." — 콜론과 같은 줄에 기관명이 있고 바로 다음 줄이 Applicant
+//  (b) "... :" 다음 줄에 기관명, 그 아래로 주소가 2~3줄 이어진 뒤에야 Applicant
+// 예전 정규식은 콜론부터 Applicant까지가 한 줄일 때만 맞아, 주소가 여러 줄인 (b) 서식에서는
+// 시험기관이 통째로 비었다. 콜론 뒤 첫 줄(기관명)만 읽어 두 서식 모두 처리한다.
+const CB_LAB = /Name of Testing Laboratory\s*preparing the Report[.\s]*:\s*([^\n]+)/i;
 const CB_TEST_ITEM = /Test item description[.\s]*:\s*(.+?)\s*Trade Mark/i;
 // 규격 번호가 페이지 폭에 걸려 줄바꿈되는 경우가 있어 [\s\S]로 줄바꿈도 건너뛰게 한다.
 // EMC 성적서 표지에는 "Collateral Standard: ELECTROMAGNETIC disturbances..."처럼 점(leader dot) 없이
@@ -54,6 +59,31 @@ const REVISION_DATE_PATTERNS = [
 ];
 
 const TITLE_PATTERN = /(?:문서\s*)?(?:제목|문서명)\s*[:：]\s*(.+)/;
+
+// --- (4) 사내(제이시스) 자체 작성 보고서 ---
+// 외부 시험기관 성적서가 아니라 회사가 직접 쓴 보고서다. 쪽마다 반복되는 머리말에
+// 문서번호·개정번호·발행일이 들어 있고, 표기가 두 가지다.
+//  (a) "Doc. No. JE-PZ-LAR / Initial prepared 2019.03.12 / Rev 0 / POTENZA Page 1 / 11"
+//  (b) "Document No. JE-PZC-SLR-001 / Revision No. Rev. 0 / Date 2023.10.12"
+const INHOUSE_MARKER = /Jeisys Medical Inc\.|JEOP-[0-9]+/i;
+const INHOUSE_DOC_NO = /Doc(?:ument)?\.?\s*No\.?\s*[:.]?\s*([A-Z][A-Z0-9-]{3,})/i;
+const INHOUSE_REVISION_PATTERNS = [
+  /Revision No\.\s*Rev\.?\s*([0-9]+)/i,
+  // 머리말에서 한 줄을 통째로 차지하는 "Rev 0". 양식 자체의 개정번호를 뜻하는
+  // "JEOP-705 Rev. No.(REV.0)"과 헷갈리지 않도록 줄 시작에서만 찾는다.
+  /\n\s*Rev\.?\s+([0-9]+)\s*\n/,
+];
+const INHOUSE_DATE_PATTERNS = [
+  /Initial(?:ly)?\s*prepared\s*([0-9]{4})\s*[.\-/]\s*([0-9]{1,2})\s*[.\-/]\s*([0-9]{1,2})/i,
+  /\nDate\s+([0-9]{4})\s*[.\-/]\s*([0-9]{1,2})\s*[.\-/]\s*([0-9]{1,2})/,
+];
+// 머리말에서 쪽 번호 왼쪽에 붙는 제품명 (예: "POTENZA Page 1 / 11")
+const INHOUSE_MODEL = /\n([A-Za-z][A-Za-z0-9 .-]{1,30}?)\s+Page\s*[0-9]+\s*\/\s*[0-9]+/;
+// 파일명 앞머리의 대괄호 제품명 (예: "[POTENZA] JE-PZ-LAR Lifetime Analysis Report_EN.pdf")
+const INHOUSE_FILE_MODEL = /^\[([^\]]{1,40})\]/;
+// 개정 이력표의 첫 줄 (예: "0 2019.03.12 Initially prepared", "0 2023.10.12 - Newly established")
+const INHOUSE_HISTORY =
+  /Revision History[\s\S]{0,300}?\n\s*([0-9]+)\s+[0-9]{4}[.\-/][0-9]{1,2}[.\-/][0-9]{1,2}\s+(?:-\s+)?([^\n]+)/i;
 
 // 파일명에 붙는 개정 표기: (Amd 1), (Amd.3), (Original)
 const FILE_AMENDMENT = /\(\s*Amd\.?\s*([0-9]+)\s*\)/i;
@@ -156,10 +186,53 @@ function readCbReport(head: string, fullText: string, fileName: string): Revisio
   };
 }
 
+/**
+ * 사내 자체 보고서의 머리말에서 문서번호·개정번호·발행일·제품명·개정사유를 읽는다.
+ * 이 서식이 아니면 null을 돌려주고, 기존 국문 규정 해석을 그대로 쓰게 한다.
+ */
+function readInhouseFields(head: string, fileName: string) {
+  if (!INHOUSE_MARKER.test(head) || !INHOUSE_DOC_NO.test(head)) return null;
+
+  const revisionNo = matchFirst(head, INHOUSE_REVISION_PATTERNS);
+  const history = head.match(INHOUSE_HISTORY);
+  const historyText = history ? history[2].replace(/\s+/g, " ").trim().slice(0, 200) : null;
+
+  return {
+    reportNo: matchText(head, INHOUSE_DOC_NO),
+    revisionNo,
+    revisionDate: matchDate(head, INHOUSE_DATE_PATTERNS),
+    model: readInhouseModel(head, fileName),
+    // 외부 시험기관이 아니라 회사가 직접 작성한 문서다
+    testingLab: "내부 보고서",
+    reasonForIssue: historyText
+      ? revisionNo === "0"
+        ? `최초 발행(${historyText})`
+        : historyText
+      : revisionNo === "0"
+        ? "최초 발행"
+        : null,
+  };
+}
+
+/** 머리말의 "POTENZA Page 1 / 11"이나 파일명 앞머리의 "[POTENZA]"에서 제품명을 읽는다 */
+function readInhouseModel(head: string, fileName: string): string | null {
+  const fromHead = head.match(INHOUSE_MODEL);
+  const candidate = fromHead ? fromHead[1].trim() : null;
+  // 쪽 번호 왼쪽에 제품명이 없는 서식에서는 "Date 2023.10.12" 같은 다른 머리말 항목이
+  // 걸리므로, 날짜나 다른 항목 이름으로 시작하는 값은 제품명으로 보지 않는다.
+  if (candidate && !/^[0-9]/.test(candidate) && !/^(?:Date|Rev|Page|Doc)\b/i.test(candidate)) {
+    return candidate;
+  }
+
+  const fromFileName = fileName.match(INHOUSE_FILE_MODEL);
+  return fromFileName ? fromFileName[1].trim() : null;
+}
+
 /** 국문 사내 규정에서 개정 정보를 읽는다 */
 function readKoreanRegulation(head: string, fileName: string): RevisionInfo {
-  let revisionNo = matchFirst(head, REVISION_NO_PATTERNS);
-  let revisionDate = matchDate(head, REVISION_DATE_PATTERNS);
+  const inhouse = readInhouseFields(head, fileName);
+  let revisionNo = matchFirst(head, REVISION_NO_PATTERNS) ?? inhouse?.revisionNo ?? null;
+  let revisionDate = matchDate(head, REVISION_DATE_PATTERNS) ?? inhouse?.revisionDate ?? null;
   let foundIn: RevisionInfo["foundIn"] = revisionNo || revisionDate ? "본문" : "없음";
 
   if (!revisionNo) {
@@ -183,15 +256,17 @@ function readKoreanRegulation(head: string, fileName: string): RevisionInfo {
     revisionNo,
     revisionDate,
     foundIn,
-    model: null,
+    model: inhouse?.model ?? null,
+    // standard·docType은 비워 둔다. 값을 채우면 makeDocKey가 파일명 기준 묶음에서
+    // 벗어나 같은 문서가 다른 키로 갈라진다.
     standard: null,
-    reportNo: null,
+    reportNo: inhouse?.reportNo ?? null,
     docType: null,
     chainAnchor: null,
     equipmentName: null,
-    testingLab: null,
+    testingLab: inhouse?.testingLab ?? null,
     appliedStandard: null,
-    reasonForIssue: null,
+    reasonForIssue: inhouse?.reasonForIssue ?? null,
   };
 }
 

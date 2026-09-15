@@ -58,10 +58,28 @@ export const OPENAI_MODEL = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
  * 시험성적서가 아니라 부속 자료(IFU·장비명판·라벨·멸균지 등)인 파일은 스캔 대상에서 제외한다.
  * (요청: IFU 제외, 장비명판 제외, 라벨 제외, 멸균지 제외)
  */
-const EXCLUDED_FILENAME_PATTERNS = [/\bIFU\b/i, /장비\s*명판/, /라벨/, /멸균지/];
+const EXCLUDED_FILENAME_PATTERNS = [
+  /\bIFU\b/i,
+  /장비\s*명판/,
+  /라벨/,
+  /멸균지/,
+  // IEC 60601-1 계열 성적서의 부속 문서(국가별 추가 요구사항)라 따로 다루지 않는다
+  /National\s*deviation/i,
+];
+
+/**
+ * 라벨 도안처럼 파일명만으로는 부속 자료인지 알 수 없고 상위 폴더로만 구분되는 파일이 있다
+ * (예: "1.IFU > 2.IFU(Cynosure) > 라벨" 폴더 안의 핸드피스·NE pad 라벨 도안 PDF).
+ * 이런 폴더는 통째로 건너뛴다.
+ */
+const EXCLUDED_FOLDER_PATTERNS = [/\bIFU\b/i, /라벨/];
 
 export function isExcludedFromScan(fileName: string): boolean {
   return EXCLUDED_FILENAME_PATTERNS.some((pattern) => pattern.test(fileName));
+}
+
+export function isExcludedFolder(folderName: string): boolean {
+  return EXCLUDED_FOLDER_PATTERNS.some((pattern) => pattern.test(folderName));
 }
 
 /**

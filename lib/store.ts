@@ -15,9 +15,10 @@ import {
   SCAN_BATCH_SIZE,
   SCAN_CACHE_FILE,
   SUPPORTED_EXTENSIONS,
+  isExcludedFolder,
   isExcludedFromScan,
 } from "./config";
-import { categorize, categoryFolderPaths, EMC_CATEGORY_LABEL, type DocCategory } from "./categories";
+import { categorize, categoryFolderPaths, EMC_TEST_LABEL, type DocCategory } from "./categories";
 import { compareTexts } from "./compare";
 import { ExtractError, extractText, isKnownExtension } from "./extract";
 import {
@@ -137,7 +138,7 @@ export async function processIncoming(params: {
   // 시험항목을 EMC test로 표시한다 (요청 1번)
   const resolvedCategoryLabel =
     info.appliedStandard && /60601-1-2\b/.test(info.appliedStandard)
-      ? EMC_CATEGORY_LABEL
+      ? EMC_TEST_LABEL
       : categoryLabel;
 
   if (!info.revisionNo && !info.revisionDate) {
@@ -197,6 +198,16 @@ export async function processIncoming(params: {
         "개정번호와 개정일자는 이미 보관된 버전과 같은데 본문 내용이 다릅니다. 원본 문서를 확인해 주세요.",
       );
     }
+    // 본문은 그대로여도 ★기본정보는 다시 읽어 채운다. 문서에서 정보를 뽑는 규칙이 나중에
+    // 좋아져도, 이미 보관된 버전은 처음 보관할 때의 값으로 굳어 있어 다시 스캔해도 바뀌지
+    // 않기 때문이다. 새로 읽은 값이 비어 있으면 기존 값을 지우지 않고 그대로 둔다.
+    await refreshVersionMeta(record, sameRevision, {
+      info,
+      sourcePath,
+      productFamily,
+      categoryLabel: resolvedCategoryLabel,
+    });
+
     return {
       status: "unchanged",
       message: `'${record.title}': 개정번호(${info.revisionNo ?? "없음"})·개정일자(${info.revisionDate ?? "없음"}) 문서가 이미 v${sameRevision.version}으로 보관되어 있습니다.`,
@@ -210,12 +221,22 @@ export async function processIncoming(params: {
     };
   }
 
-  // 개정 정보를 찾지 못한 문서는 본문이 같은 버전이 있는지로 판단한다
-  if (!info.revisionNo && !info.revisionDate) {
+  // 본문이 똑같은 버전이 이미 있으면 새 개정본이 아니다.
+  // 개정 정보를 못 찾은 문서뿐 아니라 모든 문서에 적용한다. 문서에서 정보를 뽑는 규칙이
+  // 좋아져서 예전에 못 읽던 개정일자를 이번에 읽어내면, 같은 파일인데도 개정번호·개정일자가
+  // 달라 보여 같은 문서가 두 버전으로 늘어나기 때문이다.
+  {
     const digest = hash(text);
     for (const version of record.versions) {
       const storedText = await readVersionText(docKey, version.textFile);
       if (hash(storedText) === digest) {
+        await refreshVersionMeta(record, version, {
+          info,
+          sourcePath,
+          productFamily,
+          categoryLabel: resolvedCategoryLabel,
+        });
+
         return {
           status: "unchanged",
           message: `'${record.title}': 본문이 v${version.version}과 완전히 같아 새 버전으로 등록하지 않았습니다.`,
@@ -337,6 +358,46 @@ export async function processIncoming(params: {
     changeSummary,
     warnings,
   };
+}
+
+/**
+ * 이미 보관된 버전의 ★기본정보를 다시 읽은 값으로 갱신한다.
+ * 새로 읽은 값이 비어 있으면(null) 기존 값을 그대로 두어, 정보가 지워지는 일이 없게 한다.
+ * 예: 카테고리 스캔으로 채운 시험항목이 폴더 전체 스캔 때문에 비워지지 않는다.
+ */
+async function refreshVersionMeta(
+  record: DocRecord,
+  version: DocVersion,
+  params: {
+    info: RevisionInfo;
+    sourcePath: string | null;
+    productFamily: string | null;
+    categoryLabel: string | null;
+  },
+): Promise<void> {
+  const { info, sourcePath, productFamily, categoryLabel } = params;
+  const before = JSON.stringify(version);
+
+  // 개정번호·개정일자는 버전을 가르는 기준이자 비교 순서를 정하는 값이라, 이미 들어 있는 값은
+  // 건드리지 않고 비어 있을 때만 채운다 (예전에 못 읽던 발행일을 이제 읽어낸 경우).
+  if (!version.revisionNo && info.revisionNo) {
+    version.revisionNo = info.revisionNo;
+    version.revisionRank = revisionRank(info.revisionNo);
+  }
+  if (!version.revisionDate && info.revisionDate) version.revisionDate = info.revisionDate;
+  if (version.foundIn === "없음" && info.foundIn !== "없음") version.foundIn = info.foundIn;
+
+  version.sourcePath = sourcePath ?? version.sourcePath;
+  version.reportNo = info.reportNo ?? version.reportNo;
+  version.model = info.model ?? version.model;
+  version.equipmentName = info.equipmentName ?? version.equipmentName;
+  version.testingLab = info.testingLab ?? version.testingLab;
+  version.appliedStandard = info.appliedStandard ?? version.appliedStandard;
+  version.reasonForIssue = info.reasonForIssue ?? version.reasonForIssue;
+  version.productFamily = productFamily ?? version.productFamily;
+  version.categoryLabel = categoryLabel ?? version.categoryLabel;
+
+  if (JSON.stringify(version) !== before) await saveRecord(record);
 }
 
 /**
@@ -719,6 +780,8 @@ async function collectFiles(rootPath: string): Promise<{
         // 숨김 폴더와 보관 폴더는 건너뛴다
         if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
         if (path.resolve(full) === path.resolve(ARCHIVE_DIR)) continue;
+        // IFU·라벨 폴더에는 시험성적서가 아닌 부속 자료(라벨 도안 등)만 있어 통째로 건너뛴다
+        if (isExcludedFolder(entry.name)) continue;
         await walk(full, depth + 1);
         continue;
       }
