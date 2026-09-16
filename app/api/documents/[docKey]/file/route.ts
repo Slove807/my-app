@@ -1,7 +1,7 @@
-import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { NextResponse, type NextRequest } from "next/server";
-import { ARCHIVE_DIR } from "@/lib/config";
+import { storageObjectKey } from "@/lib/storagePath";
+import { createClient } from "@/lib/supabase/server";
 import { getDocument } from "@/lib/store";
 
 const MIME_TYPES: Record<string, string> = {
@@ -44,13 +44,14 @@ export async function GET(
     return NextResponse.json({ error: "첨부된 CB Certificate가 없습니다." }, { status: 404 });
   }
 
-  const filePath = path.join(ARCHIVE_DIR, record.key, target.storedFile);
-  let buffer: Buffer;
-  try {
-    buffer = await readFile(filePath);
-  } catch {
+  const supabase = await createClient();
+  const { data, error } = await supabase.storage
+    .from("documents")
+    .download(storageObjectKey(record.key, target.storedFile));
+  if (error || !data) {
     return NextResponse.json({ error: "원본 파일을 읽지 못했습니다." }, { status: 404 });
   }
+  const buffer = Buffer.from(await data.arrayBuffer());
 
   const ext = path.extname(target.storedFile).toLowerCase();
   return new NextResponse(new Uint8Array(buffer), {

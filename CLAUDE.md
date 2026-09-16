@@ -12,7 +12,7 @@
 - 패키지 매니저: npm
 - 배포 예정: Vercel
 - 인증: Supabase Auth (이메일/비밀번호). 공개 회원가입 없음 — 계정은 관리자가 직접 생성. 관리자/일반 사용자 역할 분리
-- 문서 저장: POC 단계에서는 로컬 디렉토리 사용
+- 문서 저장: 원본 PDF·추출 텍스트·메타데이터는 Supabase(Storage `documents` 버킷 + `documents` 테이블)에 보관한다. Vercel은 로컬 SharePoint 폴더에 접근할 수 없어, 스캔은 계속 관리자 로컬 PC(`npm run dev`)에서 실행하고 그 결과만 Supabase에 올려 배포 사이트가 읽어간다. 스캔 설정·캐시(`data/settings.json` 등)는 로컬에만 남는다.
 - OCR: tesseract.js (스캔 이미지 PDF에서 글자 읽기, 한국어+영어)
 - 규격 최신판 확인: 구글 Programmable Search API (`.env`의 `GOOGLE_API_KEY`·`GOOGLE_CSE_ID`)
 

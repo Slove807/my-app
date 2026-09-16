@@ -42,6 +42,8 @@ import {
   makeDocKey,
 } from "./metadata";
 import { summarizeChange } from "./summarize";
+import { storageObjectKey } from "./storagePath";
+import { createClient } from "./supabase/server";
 import { latestVersion, orderVersions } from "./versions";
 import type {
   CategoryReport,
@@ -54,22 +56,24 @@ import type {
 } from "./types";
 
 export async function ensureDirs(): Promise<void> {
-  for (const dir of [ARCHIVE_DIR, DEFAULT_ROOT_DIR]) {
-    await mkdir(dir, { recursive: true });
-  }
+  // ARCHIVE_DIR(문서 보관)는 Supabase로 옮겼고, DEFAULT_ROOT_DIR(로컬 스캔 대상 폴더)만 남는다.
+  await mkdir(DEFAULT_ROOT_DIR, { recursive: true });
 }
 
-/** 보관 중인 모든 문서를 최근 등록순으로 돌려준다 */
+/** 보관 중인 모든 문서를 최근 등록순으로 돌려준다 (Supabase documents 테이블) */
 export async function listDocuments(): Promise<DocRecord[]> {
-  await ensureDirs();
-  const entries = await readdir(ARCHIVE_DIR, { withFileTypes: true });
-  const records: DocRecord[] = [];
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("documents")
+    .select("key, title, aliases, versions");
+  if (error || !data) return [];
 
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const record = await readRecord(entry.name);
-    if (record) records.push(record);
-  }
+  const records: DocRecord[] = data.map((row) => ({
+    key: row.key,
+    title: row.title,
+    aliases: row.aliases ?? [],
+    versions: row.versions ?? [],
+  }));
 
   return records.sort((a, b) => {
     const aTime = a.versions.at(-1)?.uploadedAt ?? "";
@@ -545,8 +549,7 @@ async function tryAttachCertificate(params: {
 
   const { record, version } = target;
   const storedFile = `v${String(version.version).padStart(3, "0")}__certificate__${sanitize(originalName)}`;
-  await mkdir(path.join(ARCHIVE_DIR, record.key), { recursive: true });
-  await writeFile(path.join(ARCHIVE_DIR, record.key, storedFile), buffer);
+  await uploadToStorage(storageObjectKey(record.key, storedFile), buffer, "application/pdf");
 
   version.certificate = { originalName, sourcePath, storedFile };
   version.certificateNo = certificateNo ?? version.certificateNo ?? null;
@@ -569,11 +572,8 @@ async function tryAttachCertificate(params: {
 async function findVersionByReportNo(
   reportNo: string,
 ): Promise<{ record: DocRecord; version: DocVersion } | null> {
-  const entries = await readdir(ARCHIVE_DIR, { withFileTypes: true }).catch(() => []);
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const record = await readRecord(entry.name);
-    if (!record) continue;
+  const records = await listDocuments();
+  for (const record of records) {
     const version = record.versions.find((item) => item.reportNo === reportNo);
     if (version) return { record, version };
   }
@@ -1047,13 +1047,19 @@ async function writeScanCache(cache: ScanCache): Promise<void> {
 }
 
 async function readRecord(docKey: string): Promise<DocRecord | null> {
-  try {
-    const raw = await readFile(path.join(ARCHIVE_DIR, docKey, "meta.json"), "utf8");
-    const record = JSON.parse(raw) as DocRecord;
-    return { ...record, aliases: record.aliases ?? [] };
-  } catch {
-    return null;
-  }
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("documents")
+    .select("key, title, aliases, versions")
+    .eq("key", docKey)
+    .maybeSingle();
+  if (error || !data) return null;
+  return {
+    key: data.key,
+    title: data.title,
+    aliases: data.aliases ?? [],
+    versions: data.versions ?? [],
+  };
 }
 
 function mergeAliases(existing: string[], incoming: string[]): string[] {
@@ -1061,23 +1067,43 @@ function mergeAliases(existing: string[], incoming: string[]): string[] {
 }
 
 async function saveRecord(record: DocRecord): Promise<void> {
-  const dir = path.join(ARCHIVE_DIR, record.key);
-  await mkdir(dir, { recursive: true });
-  await writeFile(
-    path.join(dir, "meta.json"),
-    JSON.stringify(record, null, 2),
-    "utf8",
-  );
+  const supabase = await createClient();
+  const { error } = await supabase.from("documents").upsert({
+    key: record.key,
+    title: record.title,
+    aliases: record.aliases,
+    versions: record.versions,
+    updated_at: new Date().toISOString(),
+  });
+  if (error) throw new Error(`문서 메타데이터 저장 실패: ${error.message}`);
+}
+
+/** Supabase Storage의 documents 버킷에 파일을 올린다 (관리자 로그인 세션으로만 허용됨) */
+async function uploadToStorage(
+  storagePath: string,
+  content: Buffer | string,
+  contentType: string,
+): Promise<void> {
+  const supabase = await createClient();
+  const { error } = await supabase.storage
+    .from("documents")
+    .upload(storagePath, content, { contentType, upsert: true });
+  if (error) throw new Error(`파일 저장 실패(${storagePath}): ${error.message}`);
 }
 
 /** 보관된 본문 텍스트를 덮어쓴다 (읽지 못했던 문서를 다시 읽어냈을 때) */
 async function writeVersionText(docKey: string, textFile: string, text: string): Promise<void> {
-  await writeFile(path.join(ARCHIVE_DIR, docKey, textFile), text, "utf8");
+  await uploadToStorage(storageObjectKey(docKey, textFile), text, "text/plain; charset=utf-8");
 }
 
 async function readVersionText(docKey: string, textFile: string): Promise<string> {
   try {
-    return await readFile(path.join(ARCHIVE_DIR, docKey, textFile), "utf8");
+    const supabase = await createClient();
+    const { data, error } = await supabase.storage
+      .from("documents")
+      .download(storageObjectKey(docKey, textFile));
+    if (error || !data) return "";
+    return await data.text();
   } catch {
     return "";
   }
@@ -1103,16 +1129,14 @@ async function writeVersion(params: {
   writtenLanguage: string | null;
 }): Promise<DocVersion> {
   const { docKey, versionNo, buffer, text, originalName, info } = params;
-  const dir = path.join(ARCHIVE_DIR, docKey);
-  await mkdir(dir, { recursive: true });
 
   const padded = String(versionNo).padStart(3, "0");
   const storedFile = `v${padded}__${sanitize(originalName)}`;
   const textFile = `v${padded}.txt`;
 
   // 이전 버전 파일은 그대로 두고 새 파일만 추가한다 (PRD Must 1: 버전 보존)
-  await writeFile(path.join(dir, storedFile), buffer);
-  await writeFile(path.join(dir, textFile), text, "utf8");
+  await uploadToStorage(storageObjectKey(docKey, storedFile), buffer, guessContentType(storedFile));
+  await uploadToStorage(storageObjectKey(docKey, textFile), text, "text/plain; charset=utf-8");
 
   return {
     version: versionNo,
@@ -1154,6 +1178,14 @@ function versionLabel(version: DocVersion): string {
 
 function sanitize(fileName: string): string {
   return path.basename(fileName).replace(/[^0-9A-Za-z가-힣._-]+/g, "_");
+}
+
+/** Supabase Storage에 올릴 때 쓰는 Content-Type. 확장자로만 판단한다 */
+function guessContentType(fileName: string): string {
+  const ext = path.extname(fileName).toLowerCase();
+  if (ext === ".pdf") return "application/pdf";
+  if (ext === ".md") return "text/markdown; charset=utf-8";
+  return "text/plain; charset=utf-8";
 }
 
 function hash(text: string): string {
