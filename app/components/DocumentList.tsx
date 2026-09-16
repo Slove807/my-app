@@ -274,7 +274,7 @@ function SummaryBlock({ summary }: { summary: ChangeSummary }) {
           <p className="text-xs font-medium text-sky-800 dark:text-sky-200">
             발행 및 개정사유 (문서에 명시된 근거)
           </p>
-          <p className="mt-0.5 text-sm text-sky-900 dark:text-sky-100">
+          <p className="mt-0.5 whitespace-pre-line text-sm text-sky-900 dark:text-sky-100">
             {summary.reasonForIssue}
           </p>
         </div>
@@ -348,7 +348,7 @@ function Meta({
     <div className={full ? "col-span-full" : undefined}>
       <dt className="text-slate-500 dark:text-slate-400">{label}</dt>
       <dd
-        className={`break-words text-slate-800 dark:text-slate-200 ${mono ? "font-mono" : ""}`}
+        className={`whitespace-pre-line break-words text-slate-800 dark:text-slate-200 ${mono ? "font-mono" : ""}`}
       >
         {value}
       </dd>

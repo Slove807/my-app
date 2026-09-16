@@ -166,7 +166,7 @@ function readCbReport(head: string, fullText: string, fileName: string): Revisio
   const reasonForIssue = reasonMatch
     // 개정 사유는 바뀐 항목을 줄줄이 나열해 1,000자를 넘기도 한다.
     // 500자로 자르면 마지막 항목이 문장 중간에서 끊겨 사유가 누락된 것처럼 보인다.
-    ? reasonMatch.slice(0, 3000)
+    ? splitReasonBullets(reasonMatch.slice(0, 3000))
     : revisionNo === "0"
       ? "최초 발행"
       : null;
@@ -436,6 +436,15 @@ function titleFromFileName(fileName: string): string | null {
   const base = path.basename(fileName, path.extname(fileName));
   const cleaned = base.replace(/[_]+/g, " ").replace(/\s+/g, " ").trim();
   return cleaned || null;
+}
+
+/**
+ * 개정 사유는 "- A문장. - B문장. - C문장."처럼 항목마다 "- "로 시작하는 목록인데,
+ * 본문 전체를 한 줄로 펴서(flatFullText) 찾다 보니 줄바꿈이 사라져 통째로 한 문단처럼 보인다.
+ * 문장이 끝나는 마침표 뒤에 "- "로 다음 항목이 시작되는 지점마다 줄바꿈을 되살린다.
+ */
+function splitReasonBullets(text: string): string {
+  return text.replace(/\.\s*-\s+(?=[A-Z])/g, ".\n- ");
 }
 
 function matchText(target: string, pattern: RegExp): string | null {

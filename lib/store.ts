@@ -462,6 +462,19 @@ async function refreshVersionMeta(
   version.latestStandard = latestStandard?.latest ?? version.latestStandard ?? null;
   version.latestStandardSource = latestStandard?.source ?? version.latestStandardSource ?? null;
 
+  // "변경 요약" 블록의 발행/개정사유는 이 버전을 처음 비교하던 때 계산해 저장해 둔 값이라,
+  // 위에서 추출 규칙이 좋아져 더 긴(또는 다른) reasonForIssue를 읽어내도 그대로 남아 있었다.
+  // 규칙 기반 요약(generatedBy: "rule")은 headline이 곧 reasonForIssue이므로 둘 다 새 값으로 맞춘다.
+  // AI 요약은 별도로 작성한 문장이라 headline은 그대로 두고 근거 문구만 새로 맞춘다.
+  if (version.changeSummary && info.reasonForIssue) {
+    if (version.changeSummary.reasonForIssue !== info.reasonForIssue) {
+      if (version.changeSummary.generatedBy === "rule") {
+        version.changeSummary.headline = info.reasonForIssue;
+      }
+      version.changeSummary.reasonForIssue = info.reasonForIssue;
+    }
+  }
+
   if (JSON.stringify(version) !== before) await saveRecord(record);
 }
 
