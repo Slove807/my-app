@@ -32,6 +32,8 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# 실제 값이 없는 예시 파일은 공개해도 안전하므로 예외로 둔다
+!.env.example
 
 # vercel
 .vercel
