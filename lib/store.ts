@@ -102,7 +102,6 @@ export async function processIncoming(params: {
   const productFamily = params.productFamily ?? null;
   const categoryLabel = params.categoryLabel ?? null;
   const warnings: string[] = [];
-  await ensureDirs();
 
   if (!isKnownExtension(originalName)) {
     return {

@@ -19,7 +19,8 @@ export default function ChatPanel() {
     const trimmed = question.trim();
     if (!trimmed || busy) return;
 
-    setMessages((previous) => [...previous, { role: "user", text: trimmed }]);
+    // 최신 질문 1건에 대한 답만 보여준다 — 이전 질문·답은 새 질문을 보내는 순간 지운다
+    setMessages([{ role: "user", text: trimmed }]);
     setQuestion("");
     setBusy(true);
 
@@ -31,13 +32,13 @@ export default function ChatPanel() {
       });
       const data = await response.json();
       const text = response.ok ? data.answer : (data.error ?? "답변에 실패했습니다.");
-      setMessages((previous) => [
-        ...previous,
+      setMessages([
+        { role: "user", text: trimmed },
         { role: "assistant", text, matchedTitle: data.matchedTitle },
       ]);
     } catch (caught) {
-      setMessages((previous) => [
-        ...previous,
+      setMessages([
+        { role: "user", text: trimmed },
         { role: "assistant", text: `요청에 실패했습니다: ${String(caught)}` },
       ]);
     } finally {
