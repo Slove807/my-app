@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import Dashboard from "./components/Dashboard";
 import { getCurrentUser } from "@/lib/auth";
+import { CAN_SCAN_LOCAL_FOLDER } from "@/lib/config";
 
 const ROLE_LABEL = { admin: "관리자", user: "일반 사용자" } as const;
 
@@ -40,7 +41,7 @@ export default async function Home() {
         </div>
       </header>
 
-      <Dashboard role={user.role} />
+      <Dashboard role={user.role} canScanLocally={CAN_SCAN_LOCAL_FOLDER} />
     </div>
   );
 }

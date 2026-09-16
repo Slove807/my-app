@@ -1,5 +1,12 @@
 import path from "node:path";
 
+/**
+ * Vercel에 배포된 서버인지. 이 서버는 SharePoint와 동기화된 로컬 PC 폴더에 물리적으로
+ * 접근할 수 없어, 폴더 스캔(파일 현황 확인·본문 비교)은 관리자가 로컬에서
+ * `npm run dev`로 실행해야 한다. 그 결과만 Supabase를 통해 이 배포 사이트에 반영된다.
+ */
+export const CAN_SCAN_LOCAL_FOLDER = process.env.VERCEL !== "1";
+
 /** POC 단계에서는 프로젝트 안의 로컬 디렉토리를 문서 저장소로 사용한다 (PRD 8번 항목) */
 export const DATA_ROOT = path.join(process.cwd(), "data");
 

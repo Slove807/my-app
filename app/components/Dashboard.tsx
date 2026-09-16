@@ -30,7 +30,13 @@ const STATUS_STYLE: Record<ProcessResult["status"], string> = {
   error: "bg-red-50 text-red-800 dark:bg-red-950 dark:text-red-200",
 };
 
-export default function Dashboard({ role }: { role: Role }) {
+export default function Dashboard({
+  role,
+  canScanLocally,
+}: {
+  role: Role;
+  canScanLocally: boolean;
+}) {
   const [documents, setDocuments] = useState<DocRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [results, setResults] = useState<ProcessResult[]>([]);
@@ -68,6 +74,7 @@ export default function Dashboard({ role }: { role: Role }) {
       <div className="space-y-6">
         <FolderPanel
           role={role}
+          canScanLocally={canScanLocally}
           onScanned={(summary: ScanSummary) => show(summary.results, summary.message)}
           onInventory={setInventory}
           onCategoryScanned={(summary) => {

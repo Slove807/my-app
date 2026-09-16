@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { requireAdmin } from "@/lib/auth";
 import { POTENZA_CATEGORIES } from "@/lib/categories";
+import { CAN_SCAN_LOCAL_FOLDER } from "@/lib/config";
 import { readSettings, saveSettings, validateRootPath } from "@/lib/settings";
 import { scanCategories } from "@/lib/store";
 
@@ -12,6 +13,16 @@ import { scanCategories } from "@/lib/store";
 export async function POST(request: NextRequest) {
   const denied = await requireAdmin();
   if (denied) return denied;
+
+  if (!CAN_SCAN_LOCAL_FOLDER) {
+    return Response.json(
+      {
+        error:
+          "이 서버(Vercel 배포)는 SharePoint 로컬 폴더에 접근할 수 없습니다. 관리자 PC에서 npm run dev로 실행한 뒤 스캔해 주세요.",
+      },
+      { status: 400 },
+    );
+  }
 
   const body = (await request.json().catch(() => ({}))) as {
     rootPath?: string;

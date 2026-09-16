@@ -6,12 +6,19 @@ import type { Role } from "@/lib/auth";
 
 type Props = {
   role: Role;
+  canScanLocally: boolean;
   onScanned: (summary: ScanSummary) => void;
   onInventory: (result: InventoryResult) => void;
   onCategoryScanned: (summary: CategoryScanSummary) => void;
 };
 
-export default function FolderPanel({ role, onScanned, onInventory, onCategoryScanned }: Props) {
+export default function FolderPanel({
+  role,
+  canScanLocally,
+  onScanned,
+  onInventory,
+  onCategoryScanned,
+}: Props) {
   const [rootPath, setRootPath] = useState("");
   const [personalInfo, setPersonalInfo] = useState<"yes" | "no" | null>(null);
   const [force, setForce] = useState(false);
@@ -116,6 +123,22 @@ export default function FolderPanel({ role, onScanned, onInventory, onCategorySc
     } finally {
       setBusy("none");
     }
+  }
+
+  if (!canScanLocally) {
+    return (
+      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+        <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">
+          1. 문서 폴더 지정
+        </h2>
+        <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-200">
+          이 화면은 배포된 서버(Vercel)입니다. 배포 서버는 SharePoint와 동기화된 로컬 PC 폴더에
+          접근할 수 없어 여기서는 폴더 스캔을 실행할 수 없습니다. 새 문서를 스캔하려면 관리자
+          PC에서 <code className="font-mono">npm run dev</code>로 로컬 서버를 켜고 그곳에서
+          스캔해 주세요 — 결과는 Supabase에 저장되어 이 배포 사이트에도 그대로 나타납니다.
+        </p>
+      </section>
+    );
   }
 
   return (
