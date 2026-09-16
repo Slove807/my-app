@@ -1,11 +1,19 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { createClient } from "@/lib/supabase/client";
 import type { ProcessResult } from "@/lib/types";
 
 type Props = {
   onProcessed: (results: ProcessResult[], notice?: string) => void;
 };
+
+/** 파일명 확장자만 남기고 나머지는 임의 id로 바꾼다 (Storage 키는 아스키만 허용) */
+function stagingFileName(originalName: string): string {
+  const dot = originalName.lastIndexOf(".");
+  const ext = dot >= 0 ? originalName.slice(dot) : "";
+  return `${crypto.randomUUID()}${ext}`;
+}
 
 export default function UploadPanel({ onProcessed }: Props) {
   const [personalInfo, setPersonalInfo] = useState<"yes" | "no" | null>(null);
@@ -28,18 +36,41 @@ export default function UploadPanel({ onProcessed }: Props) {
     setBusy(true);
     setError(null);
 
-    const formData = new FormData();
-    formData.set("containsPersonalInfo", personalInfo);
-    for (const file of Array.from(files)) formData.append("files", file);
+    const supabase = createClient();
+    const staged: { path: string; originalName: string }[] = [];
 
     try {
-      const response = await fetch("/api/documents", { method: "POST", body: formData });
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) throw new Error("로그인이 만료되었습니다. 다시 로그인해 주세요.");
+
+      // 큰 PDF를 서버 API로 그대로 보내면 Vercel 요청 본문 용량 제한에 걸리므로,
+      // Supabase Storage에 먼저 직접 올려 두고 서버에는 경로만 알려준다.
+      for (const file of Array.from(files)) {
+        const path = `${user.id}/${stagingFileName(file.name)}`;
+        const { error: uploadError } = await supabase.storage
+          .from("uploads")
+          .upload(path, file, { contentType: file.type || undefined });
+        if (uploadError) throw new Error(`'${file.name}' 업로드 실패: ${uploadError.message}`);
+        staged.push({ path, originalName: file.name });
+      }
+
+      const response = await fetch("/api/documents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ containsPersonalInfo: personalInfo, files: staged }),
+      });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "처리에 실패했습니다.");
       onProcessed(data.results);
       if (inputRef.current) inputRef.current.value = "";
       setFileNames([]);
     } catch (caught) {
+      // 서버가 처리하지 못하고 남긴 임시 업로드 파일은 직접 정리한다
+      if (staged.length > 0) {
+        await supabase.storage.from("uploads").remove(staged.map((item) => item.path));
+      }
       setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
       setBusy(false);
