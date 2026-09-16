@@ -3,6 +3,9 @@ import { listDocuments, processIncoming } from "@/lib/store";
 import { createClient } from "@/lib/supabase/server";
 import type { ProcessResult } from "@/lib/types";
 
+// 여러 파일을 한 번에 첨부하면(OCR·구글 규격 조회 포함) 기본 제한 시간을 넘길 수 있어 늘려둔다
+export const maxDuration = 60;
+
 /** 보관 중인 문서 목록을 돌려준다 */
 export async function GET() {
   const documents = await listDocuments();

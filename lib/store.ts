@@ -568,16 +568,32 @@ async function tryAttachCertificate(params: {
   };
 }
 
-/** 성적서 번호(Report Number)로 보관 중인 문서의 해당 버전을 찾는다 */
+/**
+ * 성적서 번호(Report Number)로 보관 중인 문서의 해당 버전을 찾는다.
+ * 보관된 문서 전체를 훑는 대신(Vercel 서버리스 함수 시간 제한에 걸릴 수 있다.
+ * 특히 CB Certificate가 여러 건 섞여 있으면 파일마다 전체를 다시 훑게 된다),
+ * versions 컬럼에 해당 reportNo를 가진 원소가 있는 문서만 DB에서 바로 찾는다.
+ */
 async function findVersionByReportNo(
   reportNo: string,
 ): Promise<{ record: DocRecord; version: DocVersion } | null> {
-  const records = await listDocuments();
-  for (const record of records) {
-    const version = record.versions.find((item) => item.reportNo === reportNo);
-    if (version) return { record, version };
-  }
-  return null;
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("documents")
+    .select("key, title, aliases, versions")
+    .contains("versions", [{ reportNo }])
+    .limit(1)
+    .maybeSingle();
+  if (error || !data) return null;
+
+  const record: DocRecord = {
+    key: data.key,
+    title: data.title,
+    aliases: data.aliases ?? [],
+    versions: data.versions ?? [],
+  };
+  const version = record.versions.find((item) => item.reportNo === reportNo);
+  return version ? { record, version } : null;
 }
 
 /**
