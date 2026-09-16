@@ -9,6 +9,11 @@ type Props = {
   loading: boolean;
 };
 
+/** 문서 목록에서 쓸 유형명. 최신 버전의 시험항목(categoryLabel)을 기준으로 묶는다 */
+function groupLabel(document: DocRecord): string {
+  return document.versions.at(-1)?.categoryLabel ?? "미분류";
+}
+
 export default function DocumentList({ documents, loading }: Props) {
   const [onlyChanged, setOnlyChanged] = useState(false);
 
@@ -17,6 +22,16 @@ export default function DocumentList({ documents, loading }: Props) {
   const visible = (onlyChanged ? changed : documents)
     .slice()
     .sort((a, b) => b.versions.length - a.versions.length);
+
+  // 같은 유형(시험항목)끼리 묶어 드롭다운으로 펼쳐 볼 수 있게 한다
+  const groups = new Map<string, DocRecord[]>();
+  for (const document of visible) {
+    const label = groupLabel(document);
+    const bucket = groups.get(label);
+    if (bucket) bucket.push(document);
+    else groups.set(label, [document]);
+  }
+  const orderedGroups = [...groups.entries()].sort((a, b) => b[1].length - a[1].length);
 
   if (loading) {
     return (
@@ -57,10 +72,34 @@ export default function DocumentList({ documents, loading }: Props) {
         </label>
       </div>
 
-      {visible.map((document) => (
-        <DocumentCard key={document.key} document={document} />
+      {orderedGroups.map(([label, group]) => (
+        <CategoryGroup key={label} label={label} documents={group} />
       ))}
     </section>
+  );
+}
+
+/** 같은 유형의 문서를 드롭다운으로 묶어, 필요한 유형만 펼쳐 볼 수 있게 한다 */
+function CategoryGroup({ label, documents }: { label: string; documents: DocRecord[] }) {
+  return (
+    <details className="group rounded-xl border border-slate-200 bg-white shadow-sm open:pb-4 dark:border-slate-700 dark:bg-slate-900">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-4 py-3 marker:content-none">
+        <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">{label}</span>
+        <span className="flex items-center gap-2">
+          <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+            {documents.length.toLocaleString()}건
+          </span>
+          <span className="text-slate-400 transition group-open:rotate-90 dark:text-slate-500">
+            ▸
+          </span>
+        </span>
+      </summary>
+      <div className="space-y-4 px-4">
+        {documents.map((document) => (
+          <DocumentCard key={document.key} document={document} />
+        ))}
+      </div>
+    </details>
   );
 }
 

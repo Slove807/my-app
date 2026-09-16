@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { describeLatestChange, findDocument } from "@/lib/lookup";
+import { answerFromRecord, findDocument } from "@/lib/lookup";
 import { buildFocusedContext, listDocuments } from "@/lib/store";
 import { answerQuestion, hasOpenAIKey } from "@/lib/summarize";
 
@@ -41,10 +41,10 @@ export async function POST(request: NextRequest) {
 
   const { record } = lookup;
 
-  // 외부 전송이 막혀 있으면 저장된 변경 내역을 그대로 정리해 답한다
+  // 외부 전송이 막혀 있으면 질문 표현을 보고 ★기본정보·변경 이력 중 맞는 답을 찾아 정리한다
   if (!hasOpenAIKey()) {
     return Response.json({
-      answer: describeLatestChange(record),
+      answer: answerFromRecord(record, question),
       generatedBy: "rule",
       matchedTitle: record.title,
     });

@@ -48,16 +48,18 @@ export default function ChatPanel() {
   return (
     <section className="flex flex-col rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
       <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-        2. 변경 내용 질문하기
+        2. 문서 내용 질문하기
       </h2>
       <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-        보관된 문서 내용만 근거로 답합니다. 원문에서 확인되지 않는 내용은 답하지 않습니다.
+        보관된 문서의 ★기본정보와 변경 이력만 근거로 답합니다. 원문에서 확인되지 않는 내용은
+        답하지 않습니다.
       </p>
 
       <div className="mt-4 min-h-40 space-y-3">
         {messages.length === 0 && (
           <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-            예시: &quot;OP manual의 최신 버전에서의 변경사항을 알려줘&quot;
+            예시: &quot;OP manual의 시험기관이 어디야?&quot; · &quot;OP manual의 최신 버전에서
+            변경사항을 알려줘&quot;
           </p>
         )}
 
