@@ -19,9 +19,13 @@ import {
   isExcludedFromScan,
 } from "./config";
 import {
+  applyDocKindToLabel,
   categorize,
   categoryFolderPaths,
+  detailedTestItem,
+  isPlanDocument,
   testLabelForStandard,
+  writtenLanguage,
   type DocCategory,
 } from "./categories";
 import { applyManualMeta, findManualMeta } from "./manual-meta";
@@ -29,6 +33,7 @@ import { findLatestStandard } from "./standard-lookup";
 import { compareTexts } from "./compare";
 import { ExtractError, extractText, isKnownExtension } from "./extract";
 import {
+  extractCertificateOwnNumber,
   extractCertifiedReportNo,
   extractRevisionInfo,
   isCbCertificate,
@@ -124,6 +129,7 @@ export async function processIncoming(params: {
   if (isCbCertificate(text)) {
     const attached = await tryAttachCertificate({
       reportNo: extractCertifiedReportNo(text),
+      certificateNo: extractCertificateOwnNumber(text),
       buffer,
       originalName,
       sourcePath,
@@ -149,8 +155,18 @@ export async function processIncoming(params: {
 
   // 적용 규격으로 무슨 시험인지 판단되면(IEC 60601-1-2 → EMC test 등) 폴더에서 정한
   // 카테고리 이름보다 그 값을 먼저 쓴다
-  const resolvedCategoryLabel =
+  const baseCategoryLabel =
     testLabelForStandard(info.appliedStandard) ?? manual?.categoryLabel ?? categoryLabel;
+  // 계획서(계획서·Protocol)인 문서는 라벨의 "report"를 "Plan/Protocol"로 바꾼다
+  const isPlan = isPlanDocument(originalName);
+  const docKind: DocVersion["docKind"] = isPlan ? "plan" : "report";
+  const resolvedCategoryLabel = baseCategoryLabel
+    ? applyDocKindToLabel(baseCategoryLabel, isPlan)
+    : baseCategoryLabel;
+  // Biocompatibility처럼 한 카테고리 안에 세부 시험이 섞여 있으면 상세 시험항목을 함께 채운다
+  const detailedTestItemValue = detailedTestItem(resolvedCategoryLabel, originalName);
+  // 파일명에 국문/영문 표기가 있을 때만 채운다 (없으면 임의로 추측하지 않는다)
+  const writtenLanguageValue = writtenLanguage(originalName);
 
   // 적용 규격에 더 새로운 판이 나왔는지 확인한다 (결과는 파일에 적어 두고 재사용한다)
   const latestStandard = info.appliedStandard
@@ -189,6 +205,9 @@ export async function processIncoming(params: {
       manualEntry: Boolean(manual),
       ocrUsed: usedOcr,
       latestStandard,
+      detailedTestItem: detailedTestItemValue,
+      docKind,
+      writtenLanguage: writtenLanguageValue,
     });
     record.title = title;
     record.versions.push(version);
@@ -223,6 +242,9 @@ export async function processIncoming(params: {
       categoryLabel: resolvedCategoryLabel,
       manualEntry: Boolean(manual),
       latestStandard,
+      detailedTestItem: detailedTestItemValue,
+      docKind,
+      writtenLanguage: writtenLanguageValue,
     });
     await saveRecord(record);
 
@@ -261,6 +283,9 @@ export async function processIncoming(params: {
       categoryLabel: resolvedCategoryLabel,
       manualEntry: Boolean(manual),
       latestStandard,
+      detailedTestItem: detailedTestItemValue,
+      docKind,
+      writtenLanguage: writtenLanguageValue,
     });
 
     return {
@@ -292,6 +317,9 @@ export async function processIncoming(params: {
           categoryLabel: resolvedCategoryLabel,
           manualEntry: Boolean(manual),
           latestStandard,
+          detailedTestItem: detailedTestItemValue,
+          docKind,
+          writtenLanguage: writtenLanguageValue,
         });
 
         return {
@@ -374,6 +402,9 @@ export async function processIncoming(params: {
     manualEntry: Boolean(manual),
     ocrUsed: usedOcr,
     latestStandard,
+    detailedTestItem: detailedTestItemValue,
+    docKind,
+    writtenLanguage: writtenLanguageValue,
   });
 
   record.versions.push(version);
@@ -435,9 +466,22 @@ async function refreshVersionMeta(
     categoryLabel: string | null;
     manualEntry: boolean;
     latestStandard: { latest: string; source: string | null } | null;
+    detailedTestItem: string | null;
+    docKind: DocVersion["docKind"];
+    writtenLanguage: string | null;
   },
 ): Promise<void> {
-  const { info, sourcePath, productFamily, categoryLabel, manualEntry, latestStandard } = params;
+  const {
+    info,
+    sourcePath,
+    productFamily,
+    categoryLabel,
+    manualEntry,
+    latestStandard,
+    detailedTestItem: detailedTestItemValue,
+    docKind,
+    writtenLanguage: writtenLanguageValue,
+  } = params;
   const before = JSON.stringify(version);
 
   // 개정번호·개정일자는 버전을 가르는 기준이자 비교 순서를 정하는 값이라, 이미 들어 있는 값은
@@ -461,6 +505,9 @@ async function refreshVersionMeta(
   version.manualEntry = manualEntry;
   version.latestStandard = latestStandard?.latest ?? version.latestStandard ?? null;
   version.latestStandardSource = latestStandard?.source ?? version.latestStandardSource ?? null;
+  version.detailedTestItem = detailedTestItemValue ?? version.detailedTestItem ?? null;
+  version.docKind = docKind;
+  version.writtenLanguage = writtenLanguageValue ?? version.writtenLanguage ?? null;
 
   // "변경 요약" 블록의 발행/개정사유는 이 버전을 처음 비교하던 때 계산해 저장해 둔 값이라,
   // 위에서 추출 규칙이 좋아져 더 긴(또는 다른) reasonForIssue를 읽어내도 그대로 남아 있었다.
@@ -484,11 +531,13 @@ async function refreshVersionMeta(
  */
 async function tryAttachCertificate(params: {
   reportNo: string | null;
+  /** 인증서 자신의 번호 (예: NO132524). ★성적서 번호에 표시한다 */
+  certificateNo: string | null;
   buffer: Buffer;
   originalName: string;
   sourcePath: string | null;
 }): Promise<ProcessResult | null> {
-  const { reportNo, buffer, originalName, sourcePath } = params;
+  const { reportNo, certificateNo, buffer, originalName, sourcePath } = params;
   if (!reportNo) return null;
 
   const target = await findVersionByReportNo(reportNo);
@@ -500,11 +549,12 @@ async function tryAttachCertificate(params: {
   await writeFile(path.join(ARCHIVE_DIR, record.key, storedFile), buffer);
 
   version.certificate = { originalName, sourcePath, storedFile };
+  version.certificateNo = certificateNo ?? version.certificateNo ?? null;
   await saveRecord(record);
 
   return {
     status: "updated",
-    message: `CB Test Certificate를 '${record.title}' 성적서(성적서 번호 ${reportNo})의 v${version.version}에 첨부했습니다. 별도 문서로 만들지 않았습니다.`,
+    message: `CB Test Certificate(${certificateNo ?? "번호 미상"})를 '${record.title}' 성적서(보고서 번호 ${reportNo})의 v${version.version}에 첨부했습니다. 별도 문서로 만들지 않았습니다.`,
     docKey: record.key,
     title: record.title,
     version: version.version,
@@ -1048,6 +1098,9 @@ async function writeVersion(params: {
   manualEntry: boolean;
   ocrUsed: boolean;
   latestStandard: { latest: string; source: string | null } | null;
+  detailedTestItem: string | null;
+  docKind: DocVersion["docKind"];
+  writtenLanguage: string | null;
 }): Promise<DocVersion> {
   const { docKey, versionNo, buffer, text, originalName, info } = params;
   const dir = path.join(ARCHIVE_DIR, docKey);
@@ -1087,7 +1140,11 @@ async function writeVersion(params: {
     ocrUsed: params.ocrUsed,
     latestStandard: params.latestStandard?.latest ?? null,
     latestStandardSource: params.latestStandard?.source ?? null,
+    detailedTestItem: params.detailedTestItem,
+    docKind: params.docKind,
+    writtenLanguage: params.writtenLanguage,
     certificate: null,
+    certificateNo: null,
   };
 }
 

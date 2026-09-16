@@ -87,12 +87,18 @@ export type DocVersion = {
   testingLab: string | null;
   /** ★기본정보: 적용 규격 */
   appliedStandard: string | null;
-  /** ★기본정보: 발행 및 개정사유 */
+  /** 발행 및 개정사유. ★기본정보에는 표시하지 않는다(개정 이력이 있으면 변경 요약에 뜬다). 챗봇 근거·changeSummary 계산에는 계속 쓴다 */
   reasonForIssue: string | null;
   /** ★기본정보: 제품군 (스캔한 최상위 폴더명, 예: POTENZA) */
   productFamily: string | null;
   /** ★기본정보: 시험항목 (카테고리 이름 또는 적용 규격으로 판단한 시험 종류) */
   categoryLabel: string | null;
+  /** ★기본정보: 상세 시험항목 (예: Biocompatibility의 Cytotoxicity·Sensitization 등 세부 시험명) */
+  detailedTestItem: string | null;
+  /** 계획서(Protocol/Plan)인지 보고서(Report)인지. 계획서는 시험항목 라벨의 "report"를 "Plan/Protocol"로 바꾼다 */
+  docKind: "plan" | "report";
+  /** ★기본정보: 작성 언어 (파일명에 국문/영문 표기가 있을 때만 채운다) */
+  writtenLanguage: string | null;
   /** ★기본정보 일부를 담당자가 직접 입력했는지 (본문을 읽을 수 없는 스캔 문서) */
   manualEntry: boolean;
   /** 본문을 원문에서 그대로 읽지 못해 OCR로 알아본 글자인지 (오탈자가 섞일 수 있음) */
@@ -107,6 +113,8 @@ export type DocVersion = {
     sourcePath: string | null;
     storedFile: string;
   } | null;
+  /** ★성적서 번호: 귀속된 CB Test Certificate 자신의 번호 (예: NO132524). 인증서가 없으면 null */
+  certificateNo: string | null;
 };
 
 /** 같은 문서의 버전들을 묶은 단위 */

@@ -156,10 +156,33 @@ function BasicInfoTable({
         <Meta label="★품목명" value={version.equipmentName ?? "-"} />
         <Meta label="★모델명" value={version.model ?? "-"} />
         <Meta label="★시험항목" value={version.categoryLabel ?? "-"} />
-        <Meta label="★성적서/보고서 번호" value={version.reportNo ?? "-"} />
+        {version.detailedTestItem && (
+          <Meta label="★상세 시험항목" value={version.detailedTestItem} />
+        )}
+        <Meta label="★보고서 번호" value={version.reportNo ?? "-"} />
+        <div>
+          <dt className="text-slate-500 dark:text-slate-400">★성적서 번호</dt>
+          <dd className="break-words text-slate-800 dark:text-slate-200">
+            {version.certificateNo && certificateHref ? (
+              <a
+                href={certificateHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sky-700 underline hover:text-sky-900 dark:text-sky-400 dark:hover:text-sky-300"
+              >
+                {version.certificateNo}
+              </a>
+            ) : (
+              "-"
+            )}
+          </dd>
+        </div>
         <Meta label="★시험기관" value={version.testingLab ?? "-"} />
         <Meta label="★발행일" value={version.revisionDate ?? "-"} />
         <Meta label="★개정번호" value={version.revisionNo ?? "-"} />
+        {version.docKind !== "plan" && version.writtenLanguage && (
+          <Meta label="★작성 언어" value={version.writtenLanguage} />
+        )}
         <Meta
           label="★적용 규격"
           value={version.appliedStandard ?? "-"}
@@ -186,7 +209,6 @@ function BasicInfoTable({
             )}
           </dd>
         </div>
-        <Meta label="★발행 및 개정사유" value={version.reasonForIssue ?? "-"} full />
         <div className="col-span-full">
           <dt className="text-slate-500 dark:text-slate-400">★성적서 링크</dt>
           <dd className="break-words">
@@ -200,21 +222,6 @@ function BasicInfoTable({
             </a>
           </dd>
         </div>
-        {certificateHref && (
-          <div className="col-span-full">
-            <dt className="text-slate-500 dark:text-slate-400">★CB Certificate</dt>
-            <dd className="break-words">
-              <a
-                href={certificateHref}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="font-mono text-sky-700 underline hover:text-sky-900 dark:text-sky-400 dark:hover:text-sky-300"
-              >
-                {version.certificate!.originalName}
-              </a>
-            </dd>
-          </div>
-        )}
       </dl>
     </div>
   );

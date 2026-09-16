@@ -40,9 +40,15 @@ const CB_STANDARD = /(?<!Non-)Standard\s*\.{2,}\s*:\s*([\s\S]+?)\s*Test procedur
 // --- (3) CB Test Certificate (CB Report와 별도 문서로 다루지 않고, 근거가 된 성적서 번호만 뽑아 그 성적서에 귀속시킨다) ---
 const CB_CERT_MARKER = /CB\s*TEST\s*CERTIFICATE/i;
 // "Test Report Ref. No. ... REP035265" 또는 불어 병기본 "... constitue partie de ce Certificat ... 407809"
-// 형식 둘 다, 안내 문구 뒤에 혼자 줄을 이루는 성적서 번호를 찾는다.
+// 형식 둘 다, 안내 문구 뒤에 나오는 첫 성적서 번호를 찾는다.
+// 개정을 여러 번 거친 성적서는 "REP061847, REP061847_1 and REP061847_2"처럼 쉼표로 여러 개를
+// 나열하기도 해서, 그 줄 전체가 아니라 맨 앞 토큰만 잘라낸다(원본 성적서 번호가 항상 먼저 나온다).
 const CB_CERT_REPORT_REF =
-  /(?:Test Report Ref\.?\s*No\.?|constitue partie de ce Certificat)[\s\S]{0,250}?\n([A-Za-z0-9]{5,})\n/i;
+  /(?:Test Report Ref\.?\s*No\.?|constitue partie de ce Certificat)[\s\S]{0,250}?\b([A-Za-z]{0,4}[0-9]{5,})\b/i;
+// 인증서 자신의 번호(예: "Ref. Certif. No / NO132524"). 근거가 된 성적서 번호와는 다른 값이다.
+// 개정을 거듭할수록 "/A1/M2"처럼 접미사가 여러 번 붙으므로(원본 → A1 → A1/M2 → A1/M3), 슬래시 구간을
+// 하나만 허용하면 뒷부분이 잘린다. 여러 번 반복되는 슬래시 구간을 전부 허용한다.
+const CB_CERT_OWN_NUMBER = /Ref\.?\s*Certif\.?\s*No\.?\s*\n\s*([A-Za-z0-9]+(?:\/[A-Za-z0-9]+)*)/i;
 
 // --- (2) 국문 사내 규정 ---
 const REVISION_NO_PATTERNS = [
@@ -398,6 +404,12 @@ export function isCbCertificate(text: string): boolean {
 /** 인증서 본문에서 "이 인증서의 근거가 된 시험성적서 번호"를 찾는다 (예: REP035265, 407809) */
 export function extractCertifiedReportNo(text: string): string | null {
   const match = text.match(CB_CERT_REPORT_REF);
+  return match ? match[1].toUpperCase() : null;
+}
+
+/** 인증서 자신의 번호를 찾는다 (예: NO132524, NO108023/M1) — ★성적서 번호에 표시할 값 */
+export function extractCertificateOwnNumber(text: string): string | null {
+  const match = text.match(CB_CERT_OWN_NUMBER);
   return match ? match[1].toUpperCase() : null;
 }
 
