@@ -1,0 +1,24 @@
+# Vercel 배포 업로드에서 제외할 항목 (.gitignore와 동일한 기준 + 배포에 불필요한 대용량 폴더)
+node_modules
+.next
+out
+build
+coverage
+
+# 업로드된 규정 문서 원본·추출 결과 (대용량, 대외비 가능성 — 배포 서버에 올릴 필요 없음)
+data
+
+# 삭제 대신 임시로 옮겨 둔 폴더 (대용량 백업 사본이 쌓여 있어 반드시 제외해야 한다)
+trash-can
+
+# 로컬 전용 설정·상태
+.claude
+.bkit
+supabase/.temp
+
+.git
+.env*
+!.env.example
+*.tsbuildinfo
+*.traineddata
+*.traineddata.gz
