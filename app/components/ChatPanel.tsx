@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import type { SourceFilter } from "@/lib/types";
 
 type Message = {
   role: "user" | "assistant";
@@ -9,7 +10,13 @@ type Message = {
   matchedTitle?: string;
 };
 
-export default function ChatPanel() {
+const SOURCE_FILTER_LABEL: Record<SourceFilter, string> = {
+  all: "전체 (Supabase 누적)",
+  scan: "로컬 폴더 스캔",
+  upload: "직접 첨부",
+};
+
+export default function ChatPanel({ sourceFilter }: { sourceFilter: SourceFilter }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [question, setQuestion] = useState("");
   const [busy, setBusy] = useState(false);
@@ -28,7 +35,7 @@ export default function ChatPanel() {
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: trimmed }),
+        body: JSON.stringify({ question: trimmed, sourceFilter }),
       });
       const data = await response.json();
       const text = response.ok ? data.answer : (data.error ?? "답변에 실패했습니다.");
@@ -54,6 +61,10 @@ export default function ChatPanel() {
       <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
         보관된 문서의 ★기본정보와 변경 이력만 근거로 답합니다. 원문에서 확인되지 않는 내용은
         답하지 않습니다.
+      </p>
+      <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
+        보기 기준: {SOURCE_FILTER_LABEL[sourceFilter]} (문서함의 &quot;보기 기준&quot;에서 바꿀
+        수 있습니다)
       </p>
 
       <div className="mt-4 min-h-40 space-y-3">

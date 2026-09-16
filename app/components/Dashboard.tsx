@@ -13,6 +13,7 @@ import type {
   InventoryResult,
   ProcessResult,
   ScanSummary,
+  SourceFilter,
 } from "@/lib/types";
 import type { Role } from "@/lib/auth";
 
@@ -43,6 +44,7 @@ export default function Dashboard({
   const [notice, setNotice] = useState<string | null>(null);
   const [inventory, setInventory] = useState<InventoryResult | null>(null);
   const [categorySummary, setCategorySummary] = useState<CategoryScanSummary | null>(null);
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
 
   const refresh = useCallback(async () => {
     try {
@@ -116,7 +118,7 @@ export default function Dashboard({
           </section>
         )}
 
-        <ChatPanel />
+        <ChatPanel sourceFilter={sourceFilter} />
 
         <details className="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
           <summary className="cursor-pointer px-5 py-4 text-sm font-medium text-slate-600 dark:text-slate-300">
@@ -128,7 +130,12 @@ export default function Dashboard({
         </details>
       </div>
 
-      <DocumentList documents={documents} loading={loading} />
+      <DocumentList
+        documents={documents}
+        loading={loading}
+        sourceFilter={sourceFilter}
+        onSourceFilterChange={setSourceFilter}
+      />
     </main>
   );
 }

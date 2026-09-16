@@ -96,8 +96,10 @@ export async function processIncoming(params: {
   productFamily?: string | null;
   /** ★기본정보 시험항목 (카테고리 스캔에서만 채워짐) */
   categoryLabel?: string | null;
+  /** 폴더 스캔(관리자 로컬 PC 또는 브라우저 폴더 선택)인지, 파일을 하나씩 직접 첨부한 것인지 */
+  source: DocVersion["source"];
 }): Promise<ProcessResult> {
-  const { buffer, originalName, containsPersonalInfo } = params;
+  const { buffer, originalName, containsPersonalInfo, source } = params;
   const sourcePath = params.sourcePath ?? null;
   const productFamily = params.productFamily ?? null;
   const categoryLabel = params.categoryLabel ?? null;
@@ -211,6 +213,7 @@ export async function processIncoming(params: {
       detailedTestItem: detailedTestItemValue,
       docKind,
       writtenLanguage: writtenLanguageValue,
+      source,
     });
     record.title = title;
     record.versions.push(version);
@@ -408,6 +411,7 @@ export async function processIncoming(params: {
     detailedTestItem: detailedTestItemValue,
     docKind,
     writtenLanguage: writtenLanguageValue,
+    source,
   });
 
   record.versions.push(version);
@@ -833,6 +837,7 @@ async function processFileList(params: {
         sourcePath: filePath,
         productFamily: meta.productFamily,
         categoryLabel: meta.categoryLabel,
+        source: "scan",
       });
     } catch (error) {
       result = {
@@ -1142,6 +1147,7 @@ async function writeVersion(params: {
   detailedTestItem: string | null;
   docKind: DocVersion["docKind"];
   writtenLanguage: string | null;
+  source: DocVersion["source"];
 }): Promise<DocVersion> {
   const { docKey, versionNo, buffer, text, originalName, info } = params;
 
@@ -1184,6 +1190,7 @@ async function writeVersion(params: {
     writtenLanguage: params.writtenLanguage,
     certificate: null,
     certificateNo: null,
+    source: params.source,
   };
 }
 

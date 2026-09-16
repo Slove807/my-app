@@ -115,7 +115,16 @@ export type DocVersion = {
   } | null;
   /** ★성적서 번호: 귀속된 CB Test Certificate 자신의 번호 (예: NO132524). 인증서가 없으면 null */
   certificateNo: string | null;
+  /**
+   * 이 버전이 어떻게 들어왔는지. "scan"은 폴더 단위(관리자 로컬 스캔 또는 브라우저 폴더 선택),
+   * "upload"는 파일을 하나씩 직접 첨부한 경우. 문서함·챗봇의 "보기 기준" 필터에 쓴다.
+   * 이 필드가 생기기 전에 저장된 버전은 없으므로(undefined) 전부 폴더 스캔으로 취급한다.
+   */
+  source?: "scan" | "upload";
 };
+
+/** 문서함·챗봇의 "보기 기준" 필터. "all"은 Supabase에 누적된 전체 문서를 뜻한다 */
+export type SourceFilter = "all" | "scan" | "upload";
 
 /** 같은 문서의 버전들을 묶은 단위 */
 export type DocRecord = {

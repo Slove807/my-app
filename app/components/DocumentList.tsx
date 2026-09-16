@@ -1,12 +1,20 @@
 "use client";
 
 import { useState } from "react";
-import type { ChangeSummary, DocRecord, DocVersion } from "@/lib/types";
+import type { ChangeSummary, DocRecord, DocVersion, SourceFilter } from "@/lib/types";
 import { orderVersions } from "@/lib/versions";
 
 type Props = {
   documents: DocRecord[];
   loading: boolean;
+  sourceFilter: SourceFilter;
+  onSourceFilterChange: (value: SourceFilter) => void;
+};
+
+const SOURCE_FILTER_LABEL: Record<SourceFilter, string> = {
+  all: "전체 (Supabase 누적)",
+  scan: "로컬 폴더 스캔",
+  upload: "직접 첨부",
 };
 
 /** 문서 목록에서 쓸 유형명. 최신 버전의 시험항목(categoryLabel)을 기준으로 묶는다 */
@@ -14,12 +22,27 @@ function groupLabel(document: DocRecord): string {
   return document.versions.at(-1)?.categoryLabel ?? "미분류";
 }
 
-export default function DocumentList({ documents, loading }: Props) {
+/** 이 필드가 생기기 전에 저장된 버전(undefined)은 전부 폴더 스캔으로 취급한다 */
+function documentSource(document: DocRecord): "scan" | "upload" {
+  return document.versions.at(-1)?.source ?? "scan";
+}
+
+export default function DocumentList({
+  documents,
+  loading,
+  sourceFilter,
+  onSourceFilterChange,
+}: Props) {
   const [onlyChanged, setOnlyChanged] = useState(false);
 
-  const changed = documents.filter((document) => document.versions.length > 1);
+  const bySource =
+    sourceFilter === "all"
+      ? documents
+      : documents.filter((document) => documentSource(document) === sourceFilter);
+
+  const changed = bySource.filter((document) => document.versions.length > 1);
   // 개정 이력이 있는 문서를 먼저 보여준다. 단일 버전 문서에 묻히지 않도록.
-  const visible = (onlyChanged ? changed : documents)
+  const visible = (onlyChanged ? changed : bySource)
     .slice()
     .sort((a, b) => b.versions.length - a.versions.length);
 
@@ -56,21 +79,53 @@ export default function DocumentList({ documents, loading }: Props) {
 
   return (
     <section className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-        <p className="text-sm text-slate-600 dark:text-slate-300">
-          보관 문서 <strong>{documents.length.toLocaleString()}</strong>건 · 개정 이력 있음{" "}
-          <strong>{changed.length.toLocaleString()}</strong>건
-        </p>
-        <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-          <input
-            type="checkbox"
-            checked={onlyChanged}
-            onChange={(event) => setOnlyChanged(event.target.checked)}
-            className="h-4 w-4"
-          />
-          개정된 문서만 보기
-        </label>
+      <div className="space-y-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+            보기 기준
+          </span>
+          <div className="flex flex-wrap gap-1.5">
+            {(Object.keys(SOURCE_FILTER_LABEL) as SourceFilter[]).map((value) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => onSourceFilterChange(value)}
+                className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+                  sourceFilter === value
+                    ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
+                    : "border-slate-300 text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+                }`}
+              >
+                {SOURCE_FILTER_LABEL[value]}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm text-slate-600 dark:text-slate-300">
+            보관 문서 <strong>{bySource.length.toLocaleString()}</strong>건 · 개정 이력 있음{" "}
+            <strong>{changed.length.toLocaleString()}</strong>건
+          </p>
+          <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+            <input
+              type="checkbox"
+              checked={onlyChanged}
+              onChange={(event) => setOnlyChanged(event.target.checked)}
+              className="h-4 w-4"
+            />
+            개정된 문서만 보기
+          </label>
+        </div>
       </div>
+
+      {visible.length === 0 && (
+        <section className="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center dark:border-slate-700 dark:bg-slate-900">
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            이 기준에 해당하는 문서가 없습니다.
+          </p>
+        </section>
+      )}
 
       {orderedGroups.map(([label, group]) => (
         <CategoryGroup key={label} label={label} documents={group} />

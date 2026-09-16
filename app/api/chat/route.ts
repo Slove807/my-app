@@ -2,21 +2,36 @@ import type { NextRequest } from "next/server";
 import { answerFromRecord, findDocument } from "@/lib/lookup";
 import { buildFocusedContext, listDocuments } from "@/lib/store";
 import { answerQuestion, hasOpenAIKey } from "@/lib/summarize";
+import type { DocRecord, SourceFilter } from "@/lib/types";
+
+/** 이 필드가 생기기 전에 저장된 버전(undefined)은 전부 폴더 스캔으로 취급한다 */
+function documentSource(record: DocRecord): "scan" | "upload" {
+  return record.versions.at(-1)?.source ?? "scan";
+}
 
 /** 질문이 지목한 문서 한 건을 근거로 답한다 */
 export async function POST(request: NextRequest) {
-  const body = (await request.json().catch(() => ({}))) as { question?: string };
+  const body = (await request.json().catch(() => ({}))) as {
+    question?: string;
+    sourceFilter?: SourceFilter;
+  };
   const question = body.question?.trim();
 
   if (!question) {
     return Response.json({ error: "질문을 입력해 주세요." }, { status: 400 });
   }
 
-  const records = await listDocuments();
+  const sourceFilter = body.sourceFilter ?? "all";
+  const all = await listDocuments();
+  // 문서함의 "보기 기준"과 챗봇 답변 범위를 맞춘다
+  const records = sourceFilter === "all" ? all : all.filter((r) => documentSource(r) === sourceFilter);
+
   if (records.length === 0) {
     return Response.json({
       answer:
-        "아직 보관된 문서가 없습니다. 먼저 문서 폴더를 스캔하거나 파일을 첨부해 주세요.",
+        all.length === 0
+          ? "아직 보관된 문서가 없습니다. 먼저 문서 폴더를 스캔하거나 파일을 첨부해 주세요."
+          : "선택하신 보기 기준에 해당하는 문서가 없습니다. 문서함의 \"보기 기준\"을 바꿔 보세요.",
       generatedBy: "rule",
     });
   }

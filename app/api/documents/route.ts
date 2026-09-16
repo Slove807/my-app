@@ -25,6 +25,7 @@ export async function POST(request: NextRequest) {
   const body = (await request.json().catch(() => null)) as {
     containsPersonalInfo?: "yes" | "no";
     files?: StagedFile[];
+    source?: "scan" | "upload";
   } | null;
 
   const answer = body?.containsPersonalInfo;
@@ -35,6 +36,10 @@ export async function POST(request: NextRequest) {
       { status: 400 },
     );
   }
+
+  // 브라우저 폴더 선택으로 올린 배치는 "scan"(로컬 폴더 기준)으로, 파일을 하나씩 고른
+  // 배치는 "upload"(직접 첨부 기준)로 표시한다. 문서함·챗봇의 "보기 기준" 필터에 쓰인다.
+  const source: "scan" | "upload" = body?.source === "scan" ? "scan" : "upload";
 
   const files = body?.files ?? [];
   if (files.length === 0) {
@@ -62,6 +67,7 @@ export async function POST(request: NextRequest) {
           buffer,
           originalName: file.originalName,
           containsPersonalInfo: answer === "yes",
+          source,
         }),
       );
     } finally {
