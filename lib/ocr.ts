@@ -1,3 +1,4 @@
+import os from "node:os";
 import { OCR_LANGUAGES, OCR_WORKERS } from "./config";
 
 /**
@@ -17,7 +18,9 @@ async function createOcrScheduler() {
   const { createScheduler, createWorker } = await import("tesseract.js");
   const scheduler = createScheduler();
   for (let index = 0; index < OCR_WORKERS; index += 1) {
-    scheduler.addWorker(await createWorker(OCR_LANGUAGES));
+    // 언어 데이터(한국어+영어, 수십 MB)를 실행 중에 내려받아 캐시한다. 기본값은 현재 폴더인데
+    // 배포 서버(Vercel)는 /tmp 말고는 쓰기가 막혀 있어 그대로 두면 OCR이 실패한다.
+    scheduler.addWorker(await createWorker(OCR_LANGUAGES, undefined, { cachePath: os.tmpdir() }));
   }
   return scheduler;
 }

@@ -3,8 +3,9 @@ import { listDocuments, processIncoming } from "@/lib/store";
 import { createClient } from "@/lib/supabase/server";
 import type { ProcessResult } from "@/lib/types";
 
-// 여러 파일을 한 번에 첨부하면(OCR·구글 규격 조회 포함) 기본 제한 시간을 넘길 수 있어 늘려둔다
-export const maxDuration = 60;
+// 스캔본 PDF는 OCR(언어 데이터 내려받기 + 페이지별 인식)에 수십 초가 걸린다.
+// 이 프로젝트의 Vercel 설정이 Fluid Compute(최대 300초)라 한도를 끝까지 올려 둔다.
+export const maxDuration = 300;
 
 /** 보관 중인 문서 목록을 돌려준다 */
 export async function GET() {

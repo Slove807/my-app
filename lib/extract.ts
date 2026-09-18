@@ -59,7 +59,34 @@ const PAGE_NOISE_PATTERNS = [
   /^[0-9]+\s*\/\s*[0-9]+$/,
 ];
 
+/**
+ * pdfjs(=pdf-parse 내부)는 브라우저 API인 DOMMatrix·ImageData·Path2D가 있어야 로드된다.
+ * Node에는 이 전역이 없어서 pdfjs가 스스로 @napi-rs/canvas를 동적 require로 가져와 채우는데,
+ * 그 require는 문자열을 실행 중에 만들어 쓰는 방식이라 빌드 시 정적 분석에 잡히지 않는다.
+ * 그래서 Vercel 함수 번들에 @napi-rs/canvas가 아예 빠지고, 폴리필이 조용히 실패한 뒤
+ * "ReferenceError: DOMMatrix is not defined"로 PDF 처리가 전부 실패했다.
+ * 여기서 직접 불러 전역을 먼저 채우면 번들에도 포함되고, pdfjs는 자기 폴리필을 건너뛴다.
+ */
+let pdfGlobalsReady: Promise<void> | null = null;
+
+function ensurePdfGlobals(): Promise<void> {
+  pdfGlobalsReady ??= (async () => {
+    const canvas = await import("@napi-rs/canvas");
+    const globals = globalThis as unknown as Record<string, unknown>;
+    globals.DOMMatrix ??= canvas.DOMMatrix;
+    globals.ImageData ??= canvas.ImageData;
+    globals.Path2D ??= canvas.Path2D;
+  })().catch((error: unknown) => {
+    // 실패한 약속을 남겨 두면 다음 호출도 계속 같은 오류를 받으므로 비워 둔다
+    pdfGlobalsReady = null;
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new ExtractError(`PDF 처리에 필요한 @napi-rs/canvas를 불러오지 못했습니다: ${reason}`);
+  });
+  return pdfGlobalsReady;
+}
+
 async function extractPdf(buffer: Buffer): Promise<ExtractResult> {
+  await ensurePdfGlobals();
   const { PDFParse } = await import("pdf-parse");
   const parser = new PDFParse({ data: new Uint8Array(buffer) });
   try {

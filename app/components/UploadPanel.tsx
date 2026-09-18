@@ -12,9 +12,9 @@ type Mode = "files" | "folder";
 
 const SUPPORTED_EXT = [".pdf", ".txt", ".md", ".hwp", ".hwpx"];
 
-// 처리 하나에 OCR·구글 규격 조회가 걸려 오래 걸릴 수 있어(/api/documents의 maxDuration=60초),
-// 폴더 하나를 통째로 올릴 때도 시간 제한에 안 걸리게 몇 개씩 나눠 보낸다.
-const PROCESS_BATCH_SIZE = 5;
+// 스캔본 PDF 한 건에 OCR만 수십 초가 걸린다(/api/documents는 maxDuration=300초).
+// 폴더를 통째로 올릴 때도 요청 하나가 시간 제한에 걸리지 않게 조금씩 나눠 보낸다.
+const PROCESS_BATCH_SIZE = 2;
 
 // lib/config.ts의 스캔 제외 규칙과 맞춘다 (IFU·라벨·멸균지·국가별 추가요구사항 부속문서 제외).
 // 브라우저(클라이언트) 코드라 서버 전용 모듈은 가져오지 않고 패턴만 그대로 옮겨 쓴다.
